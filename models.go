@@ -7,7 +7,7 @@ import (
 
 // ListModels returns the list of models available on the API.
 func (c *Client) ListModels(ctx context.Context) ([]Model, error) {
-	raw, err := c.doGet("/v1/models", nil)
+	raw, err := c.doGetCtx(ctx, "/v1/models", nil)
 	if err != nil {
 		return nil, err
 	}

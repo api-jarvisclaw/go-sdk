@@ -42,16 +42,18 @@ type SearchResult struct {
 	Snippet string `json:"snippet"`
 }
 
+// AudioResponse from audio generation endpoints.
+type AudioResponse struct {
+	ID          string `json:"id,omitempty"`
+	Status      string `json:"status,omitempty"`
+	URL         string `json:"url,omitempty"`
+	Data        []byte `json:"-"`
+	ContentType string `json:"-"`
+}
+
 // Model from list_models.
 type Model struct {
 	ID      string `json:"id"`
 	Object  string `json:"object"`
 	OwnedBy string `json:"owned_by"`
-}
-
-// Usage token counts.
-type Usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
 }

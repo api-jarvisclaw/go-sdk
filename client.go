@@ -21,7 +21,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -55,6 +57,7 @@ type Client struct {
 	baseURL    string
 	network    string
 	httpClient *http.Client
+	initErr    error
 }
 
 // Option configures a Client.
@@ -68,14 +71,14 @@ func WithAPIKey(key string) Option {
 // WithPrivateKey sets the Ethereum private key for x402 payment authentication.
 func WithPrivateKey(hexKey string) Option {
 	return func(c *Client) {
-		if len(hexKey) > 2 && hexKey[:2] == "0x" {
-			hexKey = hexKey[2:]
+		clean := strings.TrimPrefix(hexKey, "0x")
+		key, err := crypto.HexToECDSA(clean)
+		if err != nil {
+			c.initErr = err
+			return
 		}
-		key, err := crypto.HexToECDSA(hexKey)
-		if err == nil {
-			c.privateKey = key
-			c.address = crypto.PubkeyToAddress(key.PublicKey)
-		}
+		c.privateKey = key
+		c.address = crypto.PubkeyToAddress(key.PublicKey)
 	}
 }
 
@@ -116,6 +119,10 @@ func NewClient(opts ...Option) (*Client, error) {
 
 	for _, opt := range opts {
 		opt(c)
+	}
+
+	if c.initErr != nil {
+		return nil, fmt.Errorf("invalid private key: %w", c.initErr)
 	}
 
 	if c.apiKey == "" && c.privateKey == nil {
@@ -170,6 +177,22 @@ func (c *Client) doPost(path string, body any) (map[string]any, error) {
 	}
 	url := c.buildURL(path, nil)
 	req, err := http.NewRequest("POST", url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	c.applyAuth(req)
+	return c.executeJSON(req, bodyBytes)
+}
+
+// doPostCtx performs a POST request with context and returns parsed JSON.
+func (c *Client) doPostCtx(ctx context.Context, path string, body any) (map[string]any, error) {
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal body: %w", err)
+	}
+	u := c.buildURL(path, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -424,13 +447,13 @@ func (c *Client) buildError(resp *http.Response) error {
 }
 
 func (c *Client) buildURL(path string, params map[string]string) string {
-	url := c.baseURL + path
-	if len(params) > 0 {
-		url += "?"
-		for k, v := range params {
-			url += k + "=" + v + "&"
-		}
-		url = url[:len(url)-1]
+	u := c.baseURL + path
+	if len(params) == 0 {
+		return u
 	}
-	return url
+	v := url.Values{}
+	for key, val := range params {
+		v.Set(key, val)
+	}
+	return u + "?" + v.Encode()
 }

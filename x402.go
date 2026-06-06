@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common/math"
@@ -20,10 +21,12 @@ const (
 )
 
 type paymentInfo struct {
-	PayTo             string `json:"payTo"`
-	Amount            string `json:"amount"`
-	Network           string `json:"network"`
-	MaxTimeoutSeconds int    `json:"maxTimeoutSeconds"`
+	PayTo             string         `json:"payTo"`
+	Amount            string         `json:"amount"`
+	Network           string         `json:"network"`
+	Asset             string         `json:"asset"`
+	MaxTimeoutSeconds int            `json:"maxTimeoutSeconds"`
+	Extra             map[string]any `json:"extra"`
 }
 
 func parsePaymentRequired(body []byte) (*paymentInfo, error) {
@@ -35,6 +38,12 @@ func parsePaymentRequired(body []byte) (*paymentInfo, error) {
 	}
 	if len(resp.Payments) == 0 {
 		return nil, fmt.Errorf("no payment options in 402 response")
+	}
+	// Prefer EVM payment option
+	for i := range resp.Payments {
+		if strings.HasPrefix(resp.Payments[i].Network, "eip155:") {
+			return &resp.Payments[i], nil
+		}
 	}
 	return &resp.Payments[0], nil
 }
@@ -106,11 +115,23 @@ func (c *Client) signPayment(payment *paymentInfo, resourceURL string) (string, 
 	}
 	sig[64] += 27 // EIP-155 recovery id
 
-	// Build payload
+	// x402 v2 payload (matches BlockRun format)
 	payload := map[string]any{
-		"x402Version": 1,
-		"scheme":      "exact",
-		"network":     payment.Network,
+		"x402Version": 2,
+		"resource": map[string]any{
+			"url":         resourceURL,
+			"description": "API request",
+			"mimeType":    "application/json",
+		},
+		"accepted": map[string]any{
+			"scheme":            "exact",
+			"network":           payment.Network,
+			"amount":            payment.Amount,
+			"asset":             payment.Asset,
+			"payTo":             payment.PayTo,
+			"maxTimeoutSeconds": payment.MaxTimeoutSeconds,
+			"extra":             payment.Extra,
+		},
 		"payload": map[string]any{
 			"signature": "0x" + hex.EncodeToString(sig),
 			"authorization": map[string]any{
@@ -122,7 +143,7 @@ func (c *Client) signPayment(payment *paymentInfo, resourceURL string) (string, 
 				"nonce":       nonceHex,
 			},
 		},
-		"resource": resourceURL,
+		"extensions": map[string]any{},
 	}
 
 	payloadJSON, _ := json.Marshal(payload)
