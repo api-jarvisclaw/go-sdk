@@ -65,7 +65,7 @@ func (vc *VideoClient) Generate(ctx context.Context, prompt string, opts ...Vide
 		payload["duration"] = o.Duration
 	}
 
-	raw, err := vc.doPostCtx(ctx, "/v1/video/generations", payload)
+	raw, err := vc.doPostCtx(ctx, "/v1/videos/generations", payload)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func (vc *VideoClient) Generate(ctx context.Context, prompt string, opts ...Vide
 
 // Status checks the status of a video generation job by job ID.
 func (vc *VideoClient) Status(ctx context.Context, jobID string) (*VideoJob, error) {
-	raw, err := vc.doGetCtx(ctx, "/v1/video/generations/"+jobID, nil)
+	raw, err := vc.doGetCtx(ctx, "/v1/videos/generations/"+jobID, nil)
 	if err != nil {
 		return nil, err
 	}
