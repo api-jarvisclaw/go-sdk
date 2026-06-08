@@ -97,7 +97,7 @@ func (mc *MarketplaceClient) DefiProtocols(ctx context.Context, opts ...Marketpl
 
 // DefiProtocol returns data for a specific DeFi protocol by slug.
 func (mc *MarketplaceClient) DefiProtocol(ctx context.Context, slug string, opts ...MarketplaceOption) (map[string]any, error) {
-	return mc.Call(ctx, "defi", "/protocols/"+slug, opts...)
+	return mc.Call(ctx, "defi", "/protocol/"+slug, opts...)
 }
 
 // DefiYields returns current yield/APY data across DeFi protocols.
@@ -105,8 +105,8 @@ func (mc *MarketplaceClient) DefiYields(ctx context.Context, opts ...Marketplace
 	return mc.Call(ctx, "defi", "/yields", opts...)
 }
 
-// DefiTVL returns historical TVL data.
+// DefiTVL returns TVL data (alias for protocols listing).
 func (mc *MarketplaceClient) DefiTVL(ctx context.Context, opts ...MarketplaceOption) (map[string]any, error) {
-	return mc.Call(ctx, "defi", "/tvl", opts...)
+	return mc.Call(ctx, "defi", "/protocols", opts...)
 }
 
