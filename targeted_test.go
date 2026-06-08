@@ -171,3 +171,198 @@ func TestTargeted_Search_X402(t *testing.T) {
 	}
 	fmt.Printf("Search X402 result length: %d chars\n", len(resp))
 }
+
+// --- RPC (Multi-chain JSON-RPC) ---
+
+func TestTargeted_RPC_EthBlockNumber_X402(t *testing.T) {
+	skipNoWalletTargeted(t)
+
+	mc, err := jarvisclaw.NewMarketplaceClient(jarvisclaw.WithPrivateKey(targetedWallet))
+	if err != nil {
+		t.Fatalf("NewMarketplaceClient: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := mc.RPCCall(ctx, "ethereum", "eth_blockNumber", []any{})
+	if err != nil {
+		t.Fatalf("RPCCall: %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+	if _, ok := result["result"]; !ok {
+		t.Fatalf("Expected 'result' key in response, got: %v", result)
+	}
+	fmt.Printf("eth_blockNumber: %v\n", result["result"])
+}
+
+func TestTargeted_RPC_EthGasPrice_X402(t *testing.T) {
+	skipNoWalletTargeted(t)
+
+	mc, err := jarvisclaw.NewMarketplaceClient(jarvisclaw.WithPrivateKey(targetedWallet))
+	if err != nil {
+		t.Fatalf("NewMarketplaceClient: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := mc.RPCCall(ctx, "ethereum", "eth_gasPrice", []any{})
+	if err != nil {
+		t.Fatalf("RPCCall: %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+	fmt.Printf("eth_gasPrice: %v\n", result["result"])
+}
+
+func TestTargeted_RPC_BaseChain_X402(t *testing.T) {
+	skipNoWalletTargeted(t)
+
+	mc, err := jarvisclaw.NewMarketplaceClient(jarvisclaw.WithPrivateKey(targetedWallet))
+	if err != nil {
+		t.Fatalf("NewMarketplaceClient: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := mc.RPCCall(ctx, "base", "eth_blockNumber", []any{})
+	if err != nil {
+		t.Fatalf("RPCCall base: %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+	fmt.Printf("Base eth_blockNumber: %v\n", result["result"])
+}
+
+func TestTargeted_RPC_Batch_X402(t *testing.T) {
+	skipNoWalletTargeted(t)
+
+	mc, err := jarvisclaw.NewMarketplaceClient(jarvisclaw.WithPrivateKey(targetedWallet))
+	if err != nil {
+		t.Fatalf("NewMarketplaceClient: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	results, err := mc.RPCBatch(ctx, "ethereum", []jarvisclaw.RPCRequest{
+		{Method: "eth_blockNumber", Params: []any{}},
+		{Method: "eth_gasPrice", Params: []any{}},
+	})
+	if err != nil {
+		t.Fatalf("RPCBatch: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("Expected 2 results, got %d", len(results))
+	}
+	fmt.Printf("RPCBatch: %d results\n", len(results))
+}
+
+func TestTargeted_RPC_APIKey(t *testing.T) {
+	mc, err := jarvisclaw.NewMarketplaceClient(jarvisclaw.WithAPIKey(targetedAPIKey))
+	if err != nil {
+		t.Fatalf("NewMarketplaceClient: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := mc.RPCCall(ctx, "ethereum", "eth_blockNumber", []any{})
+	if err != nil {
+		t.Fatalf("RPCCall APIKey: %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+	fmt.Printf("RPC APIKey eth_blockNumber: %v\n", result["result"])
+}
+
+// --- DeFi Data (DefiLlama) ---
+
+func TestTargeted_Defi_Protocols_X402(t *testing.T) {
+	skipNoWalletTargeted(t)
+
+	mc, err := jarvisclaw.NewMarketplaceClient(jarvisclaw.WithPrivateKey(targetedWallet))
+	if err != nil {
+		t.Fatalf("NewMarketplaceClient: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := mc.DefiProtocols(ctx)
+	if err != nil {
+		t.Fatalf("DefiProtocols: %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+	fmt.Printf("DefiProtocols: got response with %d keys\n", len(result))
+}
+
+func TestTargeted_Defi_Protocol_Aave_X402(t *testing.T) {
+	skipNoWalletTargeted(t)
+
+	mc, err := jarvisclaw.NewMarketplaceClient(jarvisclaw.WithPrivateKey(targetedWallet))
+	if err != nil {
+		t.Fatalf("NewMarketplaceClient: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := mc.DefiProtocol(ctx, "aave")
+	if err != nil {
+		t.Fatalf("DefiProtocol aave: %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+	fmt.Printf("Aave protocol data: %d keys\n", len(result))
+}
+
+func TestTargeted_Defi_Yields_X402(t *testing.T) {
+	skipNoWalletTargeted(t)
+
+	mc, err := jarvisclaw.NewMarketplaceClient(jarvisclaw.WithPrivateKey(targetedWallet))
+	if err != nil {
+		t.Fatalf("NewMarketplaceClient: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := mc.DefiYields(ctx)
+	if err != nil {
+		t.Fatalf("DefiYields: %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+	fmt.Printf("DefiYields: got response\n")
+}
+
+func TestTargeted_Defi_Protocols_APIKey(t *testing.T) {
+	mc, err := jarvisclaw.NewMarketplaceClient(jarvisclaw.WithAPIKey(targetedAPIKey))
+	if err != nil {
+		t.Fatalf("NewMarketplaceClient: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := mc.DefiProtocols(ctx)
+	if err != nil {
+		t.Fatalf("DefiProtocols APIKey: %v", err)
+	}
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+	fmt.Printf("DefiProtocols APIKey: got response\n")
+}
