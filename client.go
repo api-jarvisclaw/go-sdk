@@ -32,7 +32,7 @@ import (
 
 const (
 	DefaultBaseURL = "https://api.jarvisclaw.ai"
-	Version        = "0.2.0"
+	Version        = "0.6.0"
 
 	maxRetries = 3
 )
@@ -444,6 +444,56 @@ func (c *Client) buildError(resp *http.Response) error {
 	default:
 		return &base
 	}
+}
+
+// doPostInto performs a POST with context and unmarshals the JSON response into dest.
+// dest must be a pointer (e.g. *[]map[string]any).
+func (c *Client) doPostInto(ctx context.Context, path string, body any, dest any) error {
+	raw, err := c.doPostCtx(ctx, path, body)
+	if err != nil {
+		// doPostCtx already returns an error for non-2xx — propagate as-is.
+		// For batch responses the server may return a JSON array, which
+		// parseJSONResponse cannot decode into map[string]any. In that case
+		// we need a lower-level path; see the note below.
+		return err
+	}
+	// Fast path: dest is *map[string]any — just assign.
+	if mp, ok := dest.(*map[string]any); ok {
+		*mp = raw
+		return nil
+	}
+	// General path: round-trip through JSON to decode into arbitrary dest.
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return fmt.Errorf("doPostInto: re-marshal: %w", err)
+	}
+	return json.Unmarshal(b, dest)
+}
+
+// doPostRawBytes performs a POST with context and returns the raw response body bytes.
+// Used when the response is not a JSON object (e.g., a JSON array for batch RPC).
+func (c *Client) doPostRawBytes(ctx context.Context, path string, body any) ([]byte, error) {
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal body: %w", err)
+	}
+	u := c.buildURL(path, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	c.applyAuth(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, c.buildError(resp)
+	}
+	return io.ReadAll(resp.Body)
 }
 
 func (c *Client) buildURL(path string, params map[string]string) string {

@@ -545,6 +545,54 @@ func TestWalletAddress_X402(t *testing.T) {
 
 // ─── Error Tests ───────────────────────────────────────────
 
+// ─── AudioClient Music Tests ──────────────────────────────────
+
+func TestMusicGenerate_X402(t *testing.T) {
+	skipNoWallet(t)
+	ac, err := jarvisclaw.NewAudioClient(jarvisclaw.WithPrivateKey(walletKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	resp, err := ac.Music(ctx, "a calm lo-fi beat", jarvisclaw.WithAudioModel("auto/music"))
+	if err != nil {
+		t.Fatalf("music generate failed: %v", err)
+	}
+	logResult(t, "Music Generate (x402)", map[string]interface{}{
+		"url": resp.URL,
+		"id":  resp.ID,
+	})
+	if resp.URL == "" && resp.ID == "" {
+		t.Error("expected URL or ID in response")
+	}
+}
+
+func TestMusicGenerate_APIKey(t *testing.T) {
+	skipNoAPIKey(t)
+	ac, err := jarvisclaw.NewAudioClient(jarvisclaw.WithAPIKey(apiKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	resp, err := ac.Music(ctx, "upbeat electronic dance track", jarvisclaw.WithAudioModel("auto/music"))
+	if err != nil {
+		t.Fatalf("music generate failed: %v", err)
+	}
+	logResult(t, "Music Generate (APIKey)", map[string]interface{}{
+		"url": resp.URL,
+		"id":  resp.ID,
+	})
+	if resp.URL == "" && resp.ID == "" {
+		t.Error("expected URL or ID in response")
+	}
+}
+
+// ─── Error Tests ───────────────────────────────────────────
+
 func TestInvalidAPIKey(t *testing.T) {
 	c, err := jarvisclaw.NewChatClient(jarvisclaw.WithAPIKey("sk-invalid-key-12345"))
 	if err != nil {
