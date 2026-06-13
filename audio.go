@@ -11,7 +11,10 @@ type AudioClient struct{ *Client }
 // NewAudioClient creates a new AudioClient with the given options.
 func NewAudioClient(opts ...Option) (*AudioClient, error) {
 	c, err := NewClient(opts...)
-	return &AudioClient{c}, err
+	if err != nil {
+		return nil, err
+	}
+	return &AudioClient{c}, nil
 }
 
 // AudioOption configures an audio call.

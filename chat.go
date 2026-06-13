@@ -14,7 +14,10 @@ type ChatClient struct{ *Client }
 // NewChatClient creates a new ChatClient with the given options.
 func NewChatClient(opts ...Option) (*ChatClient, error) {
 	c, err := NewClient(opts...)
-	return &ChatClient{c}, err
+	if err != nil {
+		return nil, err
+	}
+	return &ChatClient{c}, nil
 }
 
 // ChatOption configures a Chat call.
@@ -68,7 +71,7 @@ func (cc *ChatClient) Completion(ctx context.Context, messages []Message, opts .
 		payload["temperature"] = o.Temperature
 	}
 
-	raw, err := cc.doPost("/v1/chat/completions", payload)
+	raw, err := cc.doPostCtx(ctx, "/v1/chat/completions", payload)
 	if err != nil {
 		return nil, err
 	}
@@ -114,13 +117,13 @@ func (cc *ChatClient) Stream(ctx context.Context, message string, opts ...ChatOp
 		payload["temperature"] = o.Temperature
 	}
 
-	bodyBytes, err := marshalJSON(payload)
+	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal body: %w", err)
 	}
 
 	url := cc.buildURL("/v1/chat/completions", nil)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, newReader(bodyBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -163,10 +166,6 @@ func (c *Client) ChatStream(ctx context.Context, model, message string) (<-chan 
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
-
-func marshalJSON(v any) ([]byte, error)   { return json.Marshal(v) }
-func newReader(b []byte) *bytes.Reader     { return bytes.NewReader(b) }
-func parseJSONBytes(b []byte, v any) error { return json.Unmarshal(b, v) }
 
 func chatResponseFromRaw(raw map[string]any) (*ChatResponse, error) {
 	cr := &ChatResponse{Raw: raw}

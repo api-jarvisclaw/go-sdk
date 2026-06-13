@@ -50,7 +50,9 @@ func parsePaymentRequired(body []byte) (*paymentInfo, error) {
 
 func (c *Client) signPayment(payment *paymentInfo, resourceURL string) (string, error) {
 	nonce := make([]byte, 32)
-	rand.Read(nonce)
+	if _, err := rand.Read(nonce); err != nil {
+		return "", fmt.Errorf("generate nonce: %w", err)
+	}
 	nonceHex := "0x" + hex.EncodeToString(nonce)
 
 	now := time.Now().Unix()

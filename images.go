@@ -11,7 +11,10 @@ type ImageClient struct{ *Client }
 // NewImageClient creates a new ImageClient with the given options.
 func NewImageClient(opts ...Option) (*ImageClient, error) {
 	c, err := NewClient(opts...)
-	return &ImageClient{c}, err
+	if err != nil {
+		return nil, err
+	}
+	return &ImageClient{c}, nil
 }
 
 // ImageOption configures an image generation call.

@@ -147,17 +147,6 @@ func (c *Client) applyAuth(req *http.Request) {
 	}
 }
 
-// doGet performs a GET request and returns parsed JSON.
-func (c *Client) doGet(path string, params map[string]string) (map[string]any, error) {
-	url := c.buildURL(path, params)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	c.applyAuth(req)
-	return c.executeJSON(req, nil)
-}
-
 // doGetCtx performs a GET request with context and returns parsed JSON.
 func (c *Client) doGetCtx(ctx context.Context, path string, params map[string]string) (map[string]any, error) {
 	url := c.buildURL(path, params)
@@ -167,22 +156,6 @@ func (c *Client) doGetCtx(ctx context.Context, path string, params map[string]st
 	}
 	c.applyAuth(req)
 	return c.executeJSON(req, nil)
-}
-
-// doPost performs a POST request and returns parsed JSON.
-func (c *Client) doPost(path string, body any) (map[string]any, error) {
-	bodyBytes, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("marshal body: %w", err)
-	}
-	url := c.buildURL(path, nil)
-	req, err := http.NewRequest("POST", url, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	c.applyAuth(req)
-	return c.executeJSON(req, bodyBytes)
 }
 
 // doPostCtx performs a POST request with context and returns parsed JSON.
@@ -201,22 +174,6 @@ func (c *Client) doPostCtx(ctx context.Context, path string, body any) (map[stri
 	return c.executeJSON(req, bodyBytes)
 }
 
-// doPostRaw performs a POST request and returns the raw HTTP response (caller must close Body).
-func (c *Client) doPostRaw(path string, body any) (*http.Response, error) {
-	bodyBytes, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("marshal body: %w", err)
-	}
-	url := c.buildURL(path, nil)
-	req, err := http.NewRequest("POST", url, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	c.applyAuth(req)
-	return c.executeRaw(req, bodyBytes)
-}
-
 // doPostRawCtx performs a POST request with context and returns the raw HTTP response (caller must close Body).
 func (c *Client) doPostRawCtx(ctx context.Context, path string, body any) (*http.Response, error) {
 	bodyBytes, err := json.Marshal(body)
@@ -231,28 +188,6 @@ func (c *Client) doPostRawCtx(ctx context.Context, path string, body any) (*http
 	req.Header.Set("Content-Type", "application/json")
 	c.applyAuth(req)
 	return c.executeRaw(req, bodyBytes)
-}
-
-// doRequest is an alias for doPost (kept for compatibility).
-func (c *Client) doRequest(method, path string, body any) (map[string]any, error) {
-	if method == "GET" {
-		return c.doGet(path, nil)
-	}
-	return c.doPost(path, body)
-}
-
-// doRequestRaw returns the raw *http.Response for streaming/binary endpoints.
-func (c *Client) doRequestRaw(method, path string, body any) (*http.Response, error) {
-	if method == "POST" {
-		return c.doPostRaw(path, body)
-	}
-	url := c.buildURL(path, nil)
-	req, err := http.NewRequest(method, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	c.applyAuth(req)
-	return c.executeRaw(req, nil)
 }
 
 // ── Execution core ───────────────────────────────────────────────────────────

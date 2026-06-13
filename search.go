@@ -11,7 +11,10 @@ type SearchClient struct{ *Client }
 // NewSearchClient creates a new SearchClient with the given options.
 func NewSearchClient(opts ...Option) (*SearchClient, error) {
 	c, err := NewClient(opts...)
-	return &SearchClient{c}, err
+	if err != nil {
+		return nil, err
+	}
+	return &SearchClient{c}, nil
 }
 
 // SearchOption configures a search call.

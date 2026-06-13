@@ -12,7 +12,10 @@ type MarketplaceClient struct{ *Client }
 // NewMarketplaceClient creates a new MarketplaceClient with the given options.
 func NewMarketplaceClient(opts ...Option) (*MarketplaceClient, error) {
 	c, err := NewClient(opts...)
-	return &MarketplaceClient{c}, err
+	if err != nil {
+		return nil, err
+	}
+	return &MarketplaceClient{c}, nil
 }
 
 // MarketplaceOption configures a marketplace call.

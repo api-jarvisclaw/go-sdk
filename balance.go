@@ -62,9 +62,16 @@ func (c *Client) queryOnchainBalance(ctx context.Context) (float64, error) {
 
 	var rpcResp struct {
 		Result string `json:"result"`
+		Error  *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
 		return 0, err
+	}
+	if rpcResp.Error != nil {
+		return 0, fmt.Errorf("RPC error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)
 	}
 
 	result := strings.TrimPrefix(rpcResp.Result, "0x")
@@ -72,7 +79,9 @@ func (c *Client) queryOnchainBalance(ctx context.Context) (float64, error) {
 		return 0, nil
 	}
 	balance := new(big.Int)
-	balance.SetString(result, 16)
+	if _, ok := balance.SetString(result, 16); !ok {
+		return 0, fmt.Errorf("invalid balance hex from RPC: %q", rpcResp.Result)
+	}
 
 	// USDC has 6 decimals
 	f := new(big.Float).SetInt(balance)

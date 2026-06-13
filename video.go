@@ -12,7 +12,10 @@ type VideoClient struct{ *Client }
 // NewVideoClient creates a new VideoClient with the given options.
 func NewVideoClient(opts ...Option) (*VideoClient, error) {
 	c, err := NewClient(opts...)
-	return &VideoClient{c}, err
+	if err != nil {
+		return nil, err
+	}
+	return &VideoClient{c}, nil
 }
 
 // VideoOption configures a video generation call.
