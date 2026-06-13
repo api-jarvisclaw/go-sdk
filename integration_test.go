@@ -393,24 +393,27 @@ func TestSearch_APIKey(t *testing.T) {
 	}
 
 	start := time.Now()
-	results, err := sc.Search(context.Background(), "Python programming")
+	resp, err := sc.Search(context.Background(), "Python programming")
 	elapsed := time.Since(start)
 
-	logResult(t, "Search.Query (APIKey)", map[string]interface{}{
-		"result_count": len(results),
-		"error":        err,
-		"latency_ms":   elapsed.Milliseconds(),
-	})
-	if len(results) > 0 {
-		t.Logf("  first_title: %s", results[0].Title)
-		t.Logf("  first_url: %s", results[0].URL)
+	summaryLen := 0
+	citationCount := 0
+	if resp != nil {
+		summaryLen = len(resp.Summary)
+		citationCount = len(resp.Citations)
 	}
+	logResult(t, "Search.Query (APIKey)", map[string]interface{}{
+		"summary_len":    summaryLen,
+		"citation_count": citationCount,
+		"error":          err,
+		"latency_ms":     elapsed.Milliseconds(),
+	})
 
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if len(results) == 0 {
-		t.Fatal("Expected search results")
+	if resp.Summary == "" {
+		t.Fatal("Expected search summary")
 	}
 }
 
@@ -423,20 +426,24 @@ func TestSearch_X402(t *testing.T) {
 	}
 
 	start := time.Now()
-	results, err := sc.Search(context.Background(), "Bitcoin price")
+	resp, err := sc.Search(context.Background(), "Bitcoin price")
 	elapsed := time.Since(start)
 
+	summaryLen := 0
+	if resp != nil {
+		summaryLen = len(resp.Summary)
+	}
 	logResult(t, "Search.Query (X402)", map[string]interface{}{
-		"result_count": len(results),
-		"error":        err,
-		"latency_ms":   elapsed.Milliseconds(),
+		"summary_len": summaryLen,
+		"error":       err,
+		"latency_ms":  elapsed.Milliseconds(),
 	})
 
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if len(results) == 0 {
-		t.Fatal("Expected search results")
+	if resp.Summary == "" {
+		t.Fatal("Expected search summary")
 	}
 }
 
