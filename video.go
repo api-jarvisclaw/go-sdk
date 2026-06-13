@@ -22,9 +22,10 @@ func NewVideoClient(opts ...Option) (*VideoClient, error) {
 type VideoOption func(*videoOpts)
 
 type videoOpts struct {
-	Model string
-	Duration int
-	Wait     *bool // nil means "wait" (default true)
+	Model       string
+	Duration    int
+	Wait        *bool         // nil means "wait" (default true)
+	PollTimeout time.Duration // 0 means use context deadline (default)
 }
 
 // WithVideoModel sets the model for a video generation call. Defaults to "auto/video".
@@ -44,10 +45,20 @@ func WithWait(wait bool) VideoOption {
 	return func(o *videoOpts) { o.Wait = &wait }
 }
 
+// WithPollTimeout sets a maximum time to wait for video completion.
+// Overrides the context deadline for polling. Default: use context deadline.
+// Recommended: 15+ minutes for video generation (upstream status may lag).
+func WithPollTimeout(d time.Duration) VideoOption {
+	return func(o *videoOpts) { o.PollTimeout = d }
+}
+
 // Generate submits a video generation job and returns a VideoJob with the initial status.
 // Model defaults to "auto/video" if not specified via WithVideoModel.
 // By default (or with WithWait(true)), Generate blocks until the video is ready.
 // Use WithWait(false) to return immediately after submission.
+//
+// On poll timeout, Generate returns the job (with ID) AND the error, so the caller
+// can retry later via Status(). Video jobs are retrievable for 48 hours.
 func (vc *VideoClient) Generate(ctx context.Context, prompt string, opts ...VideoOption) (*VideoJob, error) {
 	o := &videoOpts{Model: "auto/video"}
 	for _, opt := range opts {
@@ -91,7 +102,15 @@ func (vc *VideoClient) Generate(ctx context.Context, prompt string, opts ...Vide
 		return job, nil
 	}
 
-	return vc.wait(ctx, job.ID)
+	// Use PollTimeout if set, otherwise use the caller's context
+	pollCtx := ctx
+	if o.PollTimeout > 0 {
+		var cancel context.CancelFunc
+		pollCtx, cancel = context.WithTimeout(ctx, o.PollTimeout)
+		defer cancel()
+	}
+
+	return vc.wait(pollCtx, job.ID)
 }
 
 // Status checks the status of a video generation job by job ID.
@@ -127,19 +146,30 @@ func (c *Client) VideoStatus(ctx context.Context, jobID string) (*VideoJob, erro
 // ── Internal helpers ─────────────────────────────────────────────────────────
 
 // wait polls a video job until it is complete or the context is cancelled.
+// On timeout, returns the last known job state AND the context error,
+// so the caller can retry with Status() later (jobs are retrievable for 48h).
 func (vc *VideoClient) wait(ctx context.Context, jobID string) (*VideoJob, error) {
 	const pollInterval = 5 * time.Second
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
+
+	lastJob := &VideoJob{ID: jobID, Status: "in_progress"}
+
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			// Return the job with ID so caller can retry via Status() later
+			return lastJob, fmt.Errorf("video poll timeout for job %s (retrievable for 48h via Status): %w", jobID, ctx.Err())
 		case <-ticker.C:
 			job, err := vc.Status(ctx, jobID)
 			if err != nil {
+				// On context error during Status call, return last known state
+				if ctx.Err() != nil {
+					return lastJob, fmt.Errorf("video poll timeout for job %s (retrievable for 48h via Status): %w", jobID, ctx.Err())
+				}
 				return nil, err
 			}
+			lastJob = job
 			if job.Status == "completed" || job.URL != "" {
 				return job, nil
 			}
