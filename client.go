@@ -32,7 +32,7 @@ import (
 
 const (
 	DefaultBaseURL = "https://api.jarvisclaw.ai"
-	Version        = "0.6.0"
+	Version        = "0.7.0"
 
 	maxRetries = 3
 )
@@ -209,6 +209,22 @@ func (c *Client) doPostRaw(path string, body any) (*http.Response, error) {
 	}
 	url := c.buildURL(path, nil)
 	req, err := http.NewRequest("POST", url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	c.applyAuth(req)
+	return c.executeRaw(req, bodyBytes)
+}
+
+// doPostRawCtx performs a POST request with context and returns the raw HTTP response (caller must close Body).
+func (c *Client) doPostRawCtx(ctx context.Context, path string, body any) (*http.Response, error) {
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal body: %w", err)
+	}
+	u := c.buildURL(path, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -472,6 +488,7 @@ func (c *Client) doPostInto(ctx context.Context, path string, body any, dest any
 
 // doPostRawBytes performs a POST with context and returns the raw response body bytes.
 // Used when the response is not a JSON object (e.g., a JSON array for batch RPC).
+// Goes through the retry/x402 execution path for resilience.
 func (c *Client) doPostRawBytes(ctx context.Context, path string, body any) ([]byte, error) {
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
@@ -485,14 +502,11 @@ func (c *Client) doPostRawBytes(ctx context.Context, path string, body any) ([]b
 	req.Header.Set("Content-Type", "application/json")
 	c.applyAuth(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.executeRaw(req, bodyBytes)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return nil, c.buildError(resp)
-	}
 	return io.ReadAll(resp.Body)
 }
 

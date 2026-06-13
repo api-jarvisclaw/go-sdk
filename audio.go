@@ -54,7 +54,7 @@ func (ac *AudioClient) Music(ctx context.Context, prompt string, opts ...AudioOp
 		payload["instrumental"] = true
 	}
 
-	raw, err := ac.doPost("/v1/audio/generations", payload)
+	raw, err := ac.doPostCtx(ctx, "/v1/audio/generations", payload)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func (ac *AudioClient) Speech(ctx context.Context, text string, opts ...AudioOpt
 		"voice": o.Voice,
 	}
 
-	resp, err := ac.doRequestRaw("POST", "/v1/audio/speech", payload)
+	resp, err := ac.doPostRawCtx(ctx, "/v1/audio/speech", payload)
 	if err != nil {
 		return nil, err
 	}

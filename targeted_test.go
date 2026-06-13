@@ -21,15 +21,15 @@ import (
 // 3. auto/search (was: endpoint type error)
 
 var (
-	targetedAPIKey = envOrTargeted("JARVISCLAW_API_KEY", "sk-OtqnrUGuNoROqKbJR9IlUFbQclLSH2vFWsvjMnR5744ZHMF0")
+	targetedAPIKey = os.Getenv("JARVISCLAW_API_KEY")
 	targetedWallet = os.Getenv("JARVISCLAW_WALLET_KEY")
 )
 
-func envOrTargeted(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+func skipNoAPIKeyTargeted(t *testing.T) {
+	t.Helper()
+	if targetedAPIKey == "" {
+		t.Skip("JARVISCLAW_API_KEY not set")
 	}
-	return fallback
 }
 
 func skipNoWalletTargeted(t *testing.T) {
@@ -66,6 +66,7 @@ func TestTargeted_ImageX402_NilSafe(t *testing.T) {
 }
 
 func TestTargeted_ImageAPIKey(t *testing.T) {
+	skipNoAPIKeyTargeted(t)
 	ic, err := jarvisclaw.NewImageClient(jarvisclaw.WithAPIKey(targetedAPIKey))
 	if err != nil {
 		t.Fatalf("NewImageClient: %v", err)
@@ -90,6 +91,7 @@ func TestTargeted_ImageAPIKey(t *testing.T) {
 // --- TTS / auto/tts (was: no channel for tts-1) ---
 
 func TestTargeted_Speech_APIKey(t *testing.T) {
+	skipNoAPIKeyTargeted(t)
 	c, err := jarvisclaw.NewClient(jarvisclaw.WithAPIKey(targetedAPIKey))
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
@@ -132,6 +134,7 @@ func TestTargeted_Speech_X402(t *testing.T) {
 // --- auto/search (was: endpoint type error) ---
 
 func TestTargeted_Search_APIKey(t *testing.T) {
+	skipNoAPIKeyTargeted(t)
 	cc, err := jarvisclaw.NewChatClient(jarvisclaw.WithAPIKey(targetedAPIKey))
 	if err != nil {
 		t.Fatalf("NewChatClient: %v", err)
@@ -265,6 +268,7 @@ func TestTargeted_RPC_Batch_X402(t *testing.T) {
 }
 
 func TestTargeted_RPC_APIKey(t *testing.T) {
+	skipNoAPIKeyTargeted(t)
 	mc, err := jarvisclaw.NewMarketplaceClient(jarvisclaw.WithAPIKey(targetedAPIKey))
 	if err != nil {
 		t.Fatalf("NewMarketplaceClient: %v", err)
@@ -349,6 +353,7 @@ func TestTargeted_Defi_Yields_X402(t *testing.T) {
 }
 
 func TestTargeted_Defi_Protocols_APIKey(t *testing.T) {
+	skipNoAPIKeyTargeted(t)
 	mc, err := jarvisclaw.NewMarketplaceClient(jarvisclaw.WithAPIKey(targetedAPIKey))
 	if err != nil {
 		t.Fatalf("NewMarketplaceClient: %v", err)

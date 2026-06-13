@@ -55,7 +55,7 @@ func (ic *ImageClient) Generate(ctx context.Context, prompt string, opts ...Imag
 		payload["size"] = o.Size
 	}
 
-	raw, err := ic.doPost("/v1/images/generations", payload)
+	raw, err := ic.doPostCtx(ctx, "/v1/images/generations", payload)
 	if err != nil {
 		return nil, err
 	}

@@ -100,10 +100,18 @@ func (cc *ChatClient) Stream(ctx context.Context, message string, opts ...ChatOp
 		opt(o)
 	}
 
+	messages := []Message{{Role: "user", Content: message}}
+	if o.System != "" {
+		messages = append([]Message{{Role: "system", Content: o.System}}, messages...)
+	}
+
 	payload := map[string]any{
 		"model":    o.Model,
-		"messages": []Message{{Role: "user", Content: message}},
+		"messages": messages,
 		"stream":   true,
+	}
+	if o.Temperature != 0 {
+		payload["temperature"] = o.Temperature
 	}
 
 	bodyBytes, err := marshalJSON(payload)

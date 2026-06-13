@@ -19,7 +19,7 @@ const (
 // x402 mode: queries on-chain USDC balance via public Base RPC.
 // API Key mode: queries account quota from the server.
 func (c *Client) GetBalance(ctx context.Context) (float64, error) {
-	if c.address.Hex() != "0x0000000000000000000000000000000000000000" {
+	if c.privateKey != nil {
 		return c.queryOnchainBalance(ctx)
 	}
 	// API Key mode — query server
