@@ -29,7 +29,7 @@ type paymentInfo struct {
 	Extra             map[string]any `json:"extra"`
 }
 
-func parsePaymentRequired(body []byte) (*paymentInfo, error) {
+func parsePaymentRequired(body []byte, preferredNetwork string) (*paymentInfo, error) {
 	var resp struct {
 		Payments []paymentInfo `json:"payments"`
 	}
@@ -39,7 +39,15 @@ func parsePaymentRequired(body []byte) (*paymentInfo, error) {
 	if len(resp.Payments) == 0 {
 		return nil, fmt.Errorf("no payment options in 402 response")
 	}
-	// Prefer EVM payment option
+	// Prefer the user's configured network if available
+	if preferredNetwork != "" {
+		for i := range resp.Payments {
+			if resp.Payments[i].Network == preferredNetwork {
+				return &resp.Payments[i], nil
+			}
+		}
+	}
+	// Fall back: prefer any EVM payment option
 	for i := range resp.Payments {
 		if strings.HasPrefix(resp.Payments[i].Network, "eip155:") {
 			return &resp.Payments[i], nil
@@ -49,6 +57,13 @@ func parsePaymentRequired(body []byte) (*paymentInfo, error) {
 }
 
 func (c *Client) signPayment(payment *paymentInfo, resourceURL string) (string, error) {
+	// Safety: this SDK only supports Base chain (eip155:8453) for x402 signing.
+	// Reject if the selected payment option is for a different EVM chain to prevent
+	// producing an invalid signature (wrong chainId/contract would burn USDC).
+	if payment.Network != "" && payment.Network != DefaultNetwork {
+		return "", fmt.Errorf("unsupported payment network %q: this SDK only supports %s", payment.Network, DefaultNetwork)
+	}
+
 	nonce := make([]byte, 32)
 	if _, err := rand.Read(nonce); err != nil {
 		return "", fmt.Errorf("generate nonce: %w", err)
@@ -62,6 +77,21 @@ func (c *Client) signPayment(payment *paymentInfo, resourceURL string) (string, 
 	amount, ok := new(big.Int).SetString(payment.Amount, 10)
 	if !ok || amount == nil {
 		return "", fmt.Errorf("invalid payment amount: %q", payment.Amount)
+	}
+
+	// Extract chainId from network string "eip155:<chainId>"
+	chainId := int64(8453) // Default to Base
+	if strings.HasPrefix(payment.Network, "eip155:") {
+		cidStr := strings.TrimPrefix(payment.Network, "eip155:")
+		if cid, cidOk := new(big.Int).SetString(cidStr, 10); cidOk {
+			chainId = cid.Int64()
+		}
+	}
+
+	// Use asset address from payment info as the verifying contract (USDC on the target chain)
+	verifyingContract := USDCContract
+	if payment.Asset != "" {
+		verifyingContract = payment.Asset
 	}
 
 	// EIP-712 typed data for TransferWithAuthorization
@@ -86,8 +116,8 @@ func (c *Client) signPayment(payment *paymentInfo, resourceURL string) (string, 
 		Domain: apitypes.TypedDataDomain{
 			Name:              "USD Coin",
 			Version:           "2",
-			ChainId:           (*math.HexOrDecimal256)(big.NewInt(8453)),
-			VerifyingContract: USDCContract,
+			ChainId:           (*math.HexOrDecimal256)(big.NewInt(chainId)),
+			VerifyingContract: verifyingContract,
 		},
 		Message: apitypes.TypedDataMessage{
 			"from":        c.address.Hex(),
@@ -148,6 +178,9 @@ func (c *Client) signPayment(payment *paymentInfo, resourceURL string) (string, 
 		"extensions": map[string]any{},
 	}
 
-	payloadJSON, _ := json.Marshal(payload)
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal x402 payload: %w", err)
+	}
 	return base64.StdEncoding.EncodeToString(payloadJSON), nil
 }

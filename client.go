@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -47,6 +48,26 @@ func sleepWithBackoff(attempt int) {
 		delay = 30 * time.Second
 	}
 	time.Sleep(delay)
+}
+
+// isRetryableNetworkError returns true for transient network errors worth retrying.
+func isRetryableNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// net/http wraps errors in *url.Error
+	if ue, ok := err.(*url.Error); ok {
+		err = ue.Err
+	}
+	// Retry on timeout or connection refused/reset
+	if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "EOF") ||
+		strings.Contains(msg, "broken pipe")
 }
 
 // Client is the JarvisClaw API client.
@@ -142,6 +163,7 @@ func (c *Client) Address() string {
 // ── Internal request helpers ─────────────────────────────────────────────────
 
 func (c *Client) applyAuth(req *http.Request) {
+	req.Header.Set("User-Agent", "jarvisclaw-go/"+Version)
 	if c.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
@@ -192,8 +214,9 @@ func (c *Client) doPostRawCtx(ctx context.Context, path string, body any) (*http
 
 // ── Execution core ───────────────────────────────────────────────────────────
 
-// executeJSON runs the request, handles 402 x402 retry, retries on 429/5xx, and parses JSON.
+// executeJSON runs the request, handles 402 x402 retry, retries on 429/5xx and network errors, and parses JSON.
 func (c *Client) executeJSON(req *http.Request, bodyBytes []byte) (map[string]any, error) {
+	var lastErr error
 	lastStatusCode := 0
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
@@ -208,6 +231,10 @@ func (c *Client) executeJSON(req *http.Request, bodyBytes []byte) (map[string]an
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
+			if isRetryableNetworkError(err) && attempt < maxRetries {
+				lastErr = err
+				continue
+			}
 			return nil, err
 		}
 
@@ -227,11 +254,15 @@ func (c *Client) executeJSON(req *http.Request, bodyBytes []byte) (map[string]an
 		return c.parseJSONResponse(resp)
 	}
 
+	if lastErr != nil {
+		return nil, fmt.Errorf("request failed after %d retries: %w", maxRetries, lastErr)
+	}
 	return nil, &APIError{StatusCode: lastStatusCode, Message: fmt.Sprintf("request failed after %d retries (last status %d)", maxRetries, lastStatusCode)}
 }
 
-// executeRaw runs the request, handles 402 x402 retry, retries on 429/5xx, and returns raw response.
+// executeRaw runs the request, handles 402 x402 retry, retries on 429/5xx and network errors, and returns raw response.
 func (c *Client) executeRaw(req *http.Request, bodyBytes []byte) (*http.Response, error) {
+	var lastErr error
 	lastStatusCode := 0
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
@@ -245,6 +276,10 @@ func (c *Client) executeRaw(req *http.Request, bodyBytes []byte) (*http.Response
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
+			if isRetryableNetworkError(err) && attempt < maxRetries {
+				lastErr = err
+				continue
+			}
 			return nil, err
 		}
 
@@ -267,6 +302,9 @@ func (c *Client) executeRaw(req *http.Request, bodyBytes []byte) (*http.Response
 		return resp, nil
 	}
 
+	if lastErr != nil {
+		return nil, fmt.Errorf("request failed after %d retries: %w", maxRetries, lastErr)
+	}
 	return nil, &APIError{StatusCode: lastStatusCode, Message: fmt.Sprintf("request failed after %d retries (last status %d)", maxRetries, lastStatusCode)}
 }
 
@@ -276,7 +314,7 @@ func (c *Client) handle402JSON(orig *http.Request, bodyBytes []byte, body402 []b
 		return nil, &InsufficientBalanceError{APIError{StatusCode: 402, Message: "payment required — provide WithPrivateKey for x402 payments"}}
 	}
 
-	payment, err := parsePaymentRequired(body402)
+	payment, err := parsePaymentRequired(body402, c.network)
 	if err != nil {
 		return nil, &PaymentError{JarvisClawError{Message: fmt.Sprintf("parse 402: %s", err)}}
 	}
@@ -306,7 +344,7 @@ func (c *Client) handle402Raw(orig *http.Request, bodyBytes []byte, body402 []by
 		return nil, &InsufficientBalanceError{APIError{StatusCode: 402, Message: "payment required — provide WithPrivateKey for x402 payments"}}
 	}
 
-	payment, err := parsePaymentRequired(body402)
+	payment, err := parsePaymentRequired(body402, c.network)
 	if err != nil {
 		return nil, &PaymentError{JarvisClawError{Message: fmt.Sprintf("parse 402: %s", err)}}
 	}
