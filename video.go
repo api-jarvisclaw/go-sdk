@@ -158,8 +158,18 @@ func videoJobFromRaw(raw map[string]any) (*VideoJob, error) {
 	if v, ok := raw["status"].(string); ok {
 		job.Status = v
 	}
+	// URL may be at top level or nested in data[0].url
 	if v, ok := raw["url"].(string); ok {
 		job.URL = v
+	}
+	if job.URL == "" {
+		if data, ok := raw["data"].([]any); ok && len(data) > 0 {
+			if item, ok := data[0].(map[string]any); ok {
+				if v, ok := item["url"].(string); ok {
+					job.URL = v
+				}
+			}
+		}
 	}
 	if job.ID == "" {
 		return nil, fmt.Errorf("unexpected video job response format")
