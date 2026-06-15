@@ -123,25 +123,117 @@ for _, r := range results {
 }
 ```
 
-### MarketplaceClient (RPC, DeFi)
+### MarketplaceClient (83+ Endpoints)
+
+Access crypto data, blockchain RPC, DeFi, prediction markets, web search, and more. All marketplace endpoints require x402 private key authentication (no API key support).
 
 ```go
 mp, _ := jc.NewMarketplaceClient(jc.WithPrivateKey(os.Getenv("WALLET_KEY")))
 
-// JSON-RPC to any chain
-result, _ := mp.RPCCall(ctx, "ethereum", "eth_blockNumber", []any{})
-fmt.Println(result["result"])
+// ─── Crypto Data (Surf) ───
+
+// Exchange data (16 CEXes supported)
+price, _ := mp.Call(ctx, "surf", "/exchange/price",
+    jc.WithParams(map[string]string{"pair": "BTC-USDT"}))
+fmt.Printf("BTC: $%v\n", price["price"])
+
+klines, _ := mp.Call(ctx, "surf", "/exchange/klines",
+    jc.WithParams(map[string]string{"pair": "ETH-USDT", "interval": "1h", "limit": "24"}))
+
+funding, _ := mp.Call(ctx, "surf", "/exchange/funding-history",
+    jc.WithParams(map[string]string{"pair": "BTC-USDT-PERP"}))
+
+// Market overview
+rankings, _ := mp.Call(ctx, "surf", "/market/ranking",
+    jc.WithParams(map[string]string{"limit": "10"}))
+
+fearGreed, _ := mp.Call(ctx, "surf", "/market/fear-greed", )
+
+etf, _ := mp.Call(ctx, "surf", "/market/etf", )
+
+indicators, _ := mp.Call(ctx, "surf", "/market/price-indicator",
+    jc.WithParams(map[string]string{"symbol": "BTC", "indicator": "rsi"}))
+
+// Social / CT intelligence
+social, _ := mp.Call(ctx, "surf", "/social/ranking",
+    jc.WithParams(map[string]string{"limit": "10"}))
+
+tweets, _ := mp.Call(ctx, "surf", "/social/user/posts",
+    jc.WithParams(map[string]string{"username": "VitalikButerin", "limit": "5"}))
+
+// Wallet intelligence (100M+ labeled wallets)
+wallet, _ := mp.Call(ctx, "surf", "/wallet/detail",
+    jc.WithParams(map[string]string{"address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"}))
+
+netWorth, _ := mp.Call(ctx, "surf", "/wallet/net-worth",
+    jc.WithParams(map[string]string{"address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"}))
+
+// Token analytics
+holders, _ := mp.Call(ctx, "surf", "/token/holders",
+    jc.WithParams(map[string]string{"symbol": "UNI", "limit": "10"}))
+
+tokenomics, _ := mp.Call(ctx, "surf", "/token/tokenomics",
+    jc.WithParams(map[string]string{"symbol": "ARB"}))
+
+// News
+news, _ := mp.Call(ctx, "surf", "/news/feed",
+    jc.WithParams(map[string]string{"limit": "5"}))
+
+// On-chain SQL (80+ ClickHouse tables)
+result, _ := mp.Post(ctx, "surf", "/onchain/sql", map[string]any{
+    "sql": "SELECT from_address, SUM(value/1e18) as eth FROM ethereum.transactions WHERE block_time > now() - interval '1 hour' GROUP BY from_address ORDER BY eth DESC LIMIT 5",
+})
+
+// VC Fund intelligence
+funds, _ := mp.Call(ctx, "surf", "/fund/ranking",
+    jc.WithParams(map[string]string{"limit": "10"}))
+
+// Unified search
+results, _ := mp.Call(ctx, "surf", "/search/web",
+    jc.WithParams(map[string]string{"q": "bitcoin etf approval"}))
+
+// ─── Prediction Markets ───
+markets, _ := mp.Call(ctx, "prediction", "/polymarket/markets",
+    jc.WithParams(map[string]string{"limit": "5", "category": "politics"}))
+
+kalshi, _ := mp.Call(ctx, "prediction", "/kalshi/markets",
+    jc.WithParams(map[string]string{"limit": "5"}))
+
+search, _ := mp.Call(ctx, "prediction", "/markets/search",
+    jc.WithParams(map[string]string{"q": "bitcoin 2026", "limit": "5"}))
+
+// ─── DEX Trading (0x) ───
+quote, _ := mp.Call(ctx, "dex", "/price",
+    jc.WithParams(map[string]string{
+        "sellToken":  "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+        "buyToken":   "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "sellAmount": "100000000000000000",
+        "chainId":    "8453",
+    }))
+
+// ─── Web Search (Exa) ───
+exa, _ := mp.Post(ctx, "exa", "/search", map[string]any{
+    "query": "latest AI research papers", "num_results": 5,
+})
+
+// ─── Blockchain RPC (40+ chains) ───
+block, _ := mp.RPCCall(ctx, "eth", "eth_blockNumber", []any{})
+slot, _ := mp.RPCCall(ctx, "sol", "getSlot", []any{})
+baseBlock, _ := mp.RPCCall(ctx, "base", "eth_blockNumber", []any{})
 
 // Batch RPC
-results, _ := mp.RPCBatch(ctx, "base", []jc.RPCRequest{
+batch, _ := mp.RPCBatch(ctx, "ethereum", []jc.RPCRequest{
     {Method: "eth_blockNumber", Params: []any{}},
     {Method: "eth_gasPrice", Params: []any{}},
 })
 
-// DeFi data
+// ─── DeFi (DefiLlama) ───
 protocols, _ := mp.DefiProtocols(ctx)
+aave, _ := mp.DefiProtocol(ctx, "aave-v3")
 yields, _ := mp.DefiYields(ctx)
 ```
+
+> **Note:** All marketplace endpoints use x402 micropayments (USDC on Base). Standard calls cost $0.0075, premium SQL costs $0.02. No API key authentication is supported for marketplace services.
 
 ## Balance
 
