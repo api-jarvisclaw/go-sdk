@@ -483,6 +483,55 @@ func (c *Client) doPostRawBytes(ctx context.Context, path string, body any) ([]b
 	return io.ReadAll(resp.Body)
 }
 
+// doJSON performs a request with optional JSON body and unmarshals the JSON response into dest.
+// method: "GET", "POST", "PUT", etc.
+// body: marshaled as JSON request body (pass nil for GET).
+// dest: pointer to target struct (pass nil to discard response body).
+func (c *Client) doJSON(ctx context.Context, method, path string, body any, dest any) error {
+	var bodyBytes []byte
+	var err error
+	if body != nil {
+		bodyBytes, err = json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("marshal body: %w", err)
+		}
+	}
+
+	u := c.buildURL(path, nil)
+	var reqBody io.Reader
+	if bodyBytes != nil {
+		reqBody = bytes.NewReader(bodyBytes)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, u, reqBody)
+	if err != nil {
+		return err
+	}
+	if bodyBytes != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	c.applyAuth(req)
+
+	resp, err := c.executeRaw(req, bodyBytes)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if dest == nil {
+		return nil
+	}
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
+	if err := json.Unmarshal(respBytes, dest); err != nil {
+		return fmt.Errorf("unmarshal response: %w", err)
+	}
+	return nil
+}
+
 func (c *Client) buildURL(path string, params map[string]string) string {
 	u := c.baseURL + path
 	if len(params) == 0 {
