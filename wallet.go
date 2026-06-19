@@ -26,6 +26,10 @@ type WalletLimits struct {
 	PerRequestMaxUSD float64 `json:"per_request_max_usd"`
 	MonthlyMaxUSD    float64 `json:"monthly_max_usd"`
 	AutoPauseBelow   float64 `json:"auto_pause_below_usd"`
+	// PoolAllocation is an optional JSON object mapping pool names to fractions (must sum to 1.0).
+	// Example: `{"operations":0.60,"insurance":0.15,"savings":0.15,"dividends":0.10}`
+	// Leave empty to keep the existing allocation unchanged.
+	PoolAllocation string `json:"pool_allocation,omitempty"`
 }
 
 // WalletPools represents pool allocation percentages and current pool balances.
