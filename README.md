@@ -46,6 +46,52 @@ client, _ := jc.NewChatClient(jc.WithPrivateKey("0x<hex-private-key>"))
 client, _ := jc.NewChatClient()
 ```
 
+---
+
+## Agent Economy (AIP + Treasury) ⚡ NEW
+
+Resolve optimal providers, manage wallet, and execute — all from the same client.
+
+```go
+c, _ := jc.NewClient(jc.WithAPIKey("sk-YOUR-KEY"))
+ctx := context.Background()
+
+// One line: find cheapest model + call it
+text, _ := c.Ask(ctx, "Explain quantum computing",
+    jc.AskOptions{Budget: 0.01, Optimize: "cost"})
+fmt.Println(text)
+```
+
+### Intent Resolution (Free)
+
+```go
+resp, _ := c.Resolve(ctx, jc.ResolveRequest{
+    Intent:      "chat_completion",
+    Constraints: jc.Constraints{MaxPriceUSD: jc.Float64Ptr(0.01)},
+    Preferences: jc.Preferences{OptimizeFor: "cost"},
+})
+fmt.Printf("Best: %s at $%.6f\n", resp.Matches[0].Model, resp.Matches[0].EstimatedPriceUSD)
+```
+
+### Wallet API
+
+```go
+bal, _ := c.WalletBalance(ctx)
+fmt.Printf("Total: %s USD\n", bal.TotalUSD)
+
+pools, _ := c.WalletPools(ctx)
+limits, _ := c.WalletLimits(ctx)
+c.SetWalletLimits(ctx, jc.WalletLimits{DailyMaxUSD: 30.0})
+```
+
+### Advanced: Go Treasury SDK
+
+For full financial autonomy (multi-pool, rules, circuit breakers):
+
+```bash
+go get github.com/api-jarvisclaw/agent-treasury-go
+```
+
 ## Clients
 
 ### ChatClient
