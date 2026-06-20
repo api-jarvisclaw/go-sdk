@@ -72,3 +72,31 @@ func (c *Client) WalletPools(ctx context.Context) (*WalletPools, error) {
 	}
 	return &resp, nil
 }
+
+// TransactionHistory represents paginated transaction history.
+type TransactionHistory struct {
+	Transactions []Transaction `json:"transactions"`
+	Total        int           `json:"total"`
+	Page         int           `json:"page"`
+}
+
+// Transaction represents a single billing transaction.
+type Transaction struct {
+	ID             int    `json:"id"`
+	AmountQuota    int    `json:"amount_quota"`
+	Category       string `json:"category"`
+	Model          string `json:"model,omitempty"`
+	UseTimeSeconds int    `json:"use_time_seconds,omitempty"`
+	CreatedAt      int64  `json:"created_at"`
+}
+
+// WalletHistory retrieves paginated transaction history.
+// GET /v1/wallet/history — requires auth.
+func (c *Client) WalletHistory(ctx context.Context, page, pageSize int) (*TransactionHistory, error) {
+	var resp TransactionHistory
+	path := fmt.Sprintf("/v1/wallet/history?page=%d&page_size=%d", page, pageSize)
+	if err := c.doJSON(ctx, "GET", path, nil, &resp); err != nil {
+		return nil, fmt.Errorf("wallet history: %w", err)
+	}
+	return &resp, nil
+}
