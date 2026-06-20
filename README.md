@@ -259,8 +259,14 @@ quote, _ := mp.Call(ctx, "dex", "/price",
 
 // ─── Web Search (Exa) ───
 exa, _ := mp.Post(ctx, "exa", "/search", map[string]any{
-    "query": "latest AI research papers", "num_results": 5,
+    "query": "latest AI research papers", "numResults": 5,
 })
+
+// Or use SearchClient convenience methods:
+sc, _ := jc.NewSearchClient(jc.WithPrivateKey(os.Getenv("WALLET_KEY")))
+similar, _ := sc.FindSimilar(ctx, "https://arxiv.org/abs/2301.00001", jc.WithNumResults(5))
+contents, _ := sc.Contents(ctx, []string{"https://example.com/article"})
+answer, _ := sc.Answer(ctx, "What are the latest advances in AI?")
 
 // ─── Blockchain RPC (40+ chains) ───
 block, _ := mp.RPCCall(ctx, "eth", "eth_blockNumber", []any{})

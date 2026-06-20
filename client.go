@@ -33,7 +33,7 @@ import (
 
 const (
 	DefaultBaseURL = "https://api.jarvisclaw.ai"
-	Version        = "0.9.2"
+	Version        = "0.9.3"
 
 	maxRetries = 3
 )
