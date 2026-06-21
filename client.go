@@ -33,7 +33,7 @@ import (
 
 const (
 	DefaultBaseURL = "https://api.jarvisclaw.ai"
-	Version        = "0.9.0"
+	Version        = "0.9.3"
 
 	maxRetries = 3
 )
@@ -530,6 +530,45 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, dest
 		return fmt.Errorf("unmarshal response: %w", err)
 	}
 	return nil
+}
+
+// doRawJSON is like doJSON but returns the raw response bytes instead of decoding.
+func (c *Client) doRawJSON(ctx context.Context, method, path string, body any) (json.RawMessage, error) {
+	var bodyBytes []byte
+	var err error
+	if body != nil {
+		bodyBytes, err = json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("marshal body: %w", err)
+		}
+	}
+
+	u := c.buildURL(path, nil)
+	var reqBody io.Reader
+	if bodyBytes != nil {
+		reqBody = bytes.NewReader(bodyBytes)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, u, reqBody)
+	if err != nil {
+		return nil, err
+	}
+	if bodyBytes != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	c.applyAuth(req)
+
+	resp, err := c.executeRaw(req, bodyBytes)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	return json.RawMessage(respBytes), nil
 }
 
 func (c *Client) buildURL(path string, params map[string]string) string {

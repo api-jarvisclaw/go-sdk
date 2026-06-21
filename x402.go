@@ -31,29 +31,35 @@ type paymentInfo struct {
 
 func parsePaymentRequired(body []byte, preferredNetwork string) (*paymentInfo, error) {
 	var resp struct {
+		Accepts  []paymentInfo `json:"accepts"`
 		Payments []paymentInfo `json:"payments"`
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, err
 	}
-	if len(resp.Payments) == 0 {
+	// x402 v2 uses "accepts", v1 uses "payments"
+	payments := resp.Accepts
+	if len(payments) == 0 {
+		payments = resp.Payments
+	}
+	if len(payments) == 0 {
 		return nil, fmt.Errorf("no payment options in 402 response")
 	}
 	// Prefer the user's configured network if available
 	if preferredNetwork != "" {
-		for i := range resp.Payments {
-			if resp.Payments[i].Network == preferredNetwork {
-				return &resp.Payments[i], nil
+		for i := range payments {
+			if payments[i].Network == preferredNetwork {
+				return &payments[i], nil
 			}
 		}
 	}
 	// Fall back: prefer any EVM payment option
-	for i := range resp.Payments {
-		if strings.HasPrefix(resp.Payments[i].Network, "eip155:") {
-			return &resp.Payments[i], nil
+	for i := range payments {
+		if strings.HasPrefix(payments[i].Network, "eip155:") {
+			return &payments[i], nil
 		}
 	}
-	return &resp.Payments[0], nil
+	return &payments[0], nil
 }
 
 func (c *Client) signPayment(payment *paymentInfo, resourceURL string) (string, error) {
