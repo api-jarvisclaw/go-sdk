@@ -25,7 +25,7 @@ func main() {
     ctx := context.Background()
 
     // Chat (smart-routed — model defaults to "auto")
-    chat, _ := jc.NewChatClient(jc.WithPrivateKey(os.Getenv("WALLET_KEY")))
+    chat, _ := jc.NewChatClient(jc.WithPrivateKey(os.Getenv("JARVISCLAW_WALLET_KEY")))
     text, _ := chat.Complete(ctx, "What is quantum computing?")
     fmt.Println(text)
 }
@@ -119,7 +119,7 @@ for chunk := range sr.Channel() {
 ### ImageClient
 
 ```go
-img, _ := jc.NewImageClient(jc.WithPrivateKey(os.Getenv("WALLET_KEY")))
+img, _ := jc.NewImageClient(jc.WithPrivateKey(os.Getenv("JARVISCLAW_WALLET_KEY")))
 
 result, _ := img.Generate(ctx, "A cat in space",
     jc.WithSize("1024x1024"),
@@ -131,7 +131,7 @@ fmt.Println(result.URL)
 ### VideoClient
 
 ```go
-vid, _ := jc.NewVideoClient(jc.WithPrivateKey(os.Getenv("WALLET_KEY")))
+vid, _ := jc.NewVideoClient(jc.WithPrivateKey(os.Getenv("JARVISCLAW_WALLET_KEY")))
 
 // Blocking — waits until video is ready (default)
 job, _ := vid.Generate(ctx, "A ball bouncing", jc.WithDuration(5))
@@ -174,7 +174,7 @@ for _, r := range results {
 Access crypto data, blockchain RPC, DeFi, prediction markets, web search, and more. All marketplace endpoints require x402 private key authentication (no API key support).
 
 ```go
-mp, _ := jc.NewMarketplaceClient(jc.WithPrivateKey(os.Getenv("WALLET_KEY")))
+mp, _ := jc.NewMarketplaceClient(jc.WithPrivateKey(os.Getenv("JARVISCLAW_WALLET_KEY")))
 
 // ─── Crypto Data (Surf) ───
 
@@ -263,7 +263,7 @@ exa, _ := mp.Post(ctx, "exa", "/search", map[string]any{
 })
 
 // Or use SearchClient convenience methods:
-sc, _ := jc.NewSearchClient(jc.WithPrivateKey(os.Getenv("WALLET_KEY")))
+sc, _ := jc.NewSearchClient(jc.WithPrivateKey(os.Getenv("JARVISCLAW_WALLET_KEY")))
 similar, _ := sc.FindSimilar(ctx, "https://arxiv.org/abs/2301.00001", jc.WithNumResults(5))
 contents, _ := sc.Contents(ctx, []string{"https://example.com/article"})
 answer, _ := sc.Answer(ctx, "What are the latest advances in AI?")
@@ -290,7 +290,7 @@ yields, _ := mp.DefiYields(ctx)
 ## Balance
 
 ```go
-client, _ := jc.NewClient(jc.WithPrivateKey(os.Getenv("WALLET_KEY")))
+client, _ := jc.NewClient(jc.WithPrivateKey(os.Getenv("JARVISCLAW_WALLET_KEY")))
 
 // x402 mode: returns on-chain USDC balance
 // API key mode: returns server quota in USD
