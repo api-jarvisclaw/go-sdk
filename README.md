@@ -92,6 +92,69 @@ For full financial autonomy (multi-pool, rules, circuit breakers):
 go get github.com/api-jarvisclaw/agent-treasury-go
 ```
 
+## Using Official SDKs Natively
+
+You can also use the official `openai-go` or `anthropic-sdk-go` directly against JarvisClaw — just set the base URL:
+
+### OpenAI Go SDK (Responses API)
+
+```go
+import (
+    "context"
+    "fmt"
+    "github.com/openai/openai-go"
+    "github.com/openai/openai-go/option"
+)
+
+client := openai.NewClient(
+    option.WithAPIKey("sk-your-jarvisclaw-key"),
+    option.WithBaseURL("https://api.jarvisclaw.ai/v1"),
+)
+
+// Responses API
+resp, _ := client.Responses.New(context.Background(),
+    openai.ResponseNewParams{
+        Model: "anthropic/claude-sonnet-4-20250514",
+        Input: openai.ResponseNewParamsInputUnionString("Explain quantum computing"),
+    },
+)
+fmt.Println(resp.OutputText)
+```
+
+### Anthropic Go SDK (Native Messages API)
+
+```go
+import (
+    "context"
+    "fmt"
+    "github.com/anthropics/anthropic-sdk-go"
+    "github.com/anthropics/anthropic-sdk-go/option"
+)
+
+client := anthropic.NewClient(
+    option.WithAPIKey("sk-your-jarvisclaw-key"),
+    option.WithBaseURL("https://api.jarvisclaw.ai"),
+)
+
+message, _ := client.Messages.New(context.Background(),
+    anthropic.MessageNewParams{
+        Model:     "claude-sonnet-4-20250514",
+        MaxTokens: 1024,
+        Messages: []anthropic.MessageParam{
+            anthropic.NewUserMessage(
+                anthropic.NewTextBlock("Explain quantum computing"),
+            ),
+        },
+    },
+)
+fmt.Println(message.Content[0].Text)
+```
+
+> **When to use which?**
+> - `go-sdk` (this package) — agents, x402 wallet payments, intent routing, budget control
+> - `openai-go` — Responses API features, drop-in for existing OpenAI code
+> - `anthropic-sdk-go` — Claude-native features (prompt caching, extended thinking, native tool_use)
+
 ## Clients
 
 ### ChatClient
@@ -157,6 +220,33 @@ os.WriteFile("output.mp3", resp.Data, 0644)
 // Music generation
 music, _ := audio.Music(ctx, "a calm lo-fi beat", jc.WithInstrumental(true))
 fmt.Println(music.URL)
+```
+
+### Prompt Coach
+
+Optimize and score prompts. Fixed pricing: $0.002 USDC per request.
+
+```go
+c, _ := jc.NewClient(jc.WithAPIKey("sk-..."))
+
+// Optimize a prompt
+result, _ := c.PromptCoach(ctx, jc.PromptCoachRequest{
+    Prompt:  "write code that does the thing",
+    Context: "technical blog for developers",
+})
+fmt.Println(result.OptimizedPrompt)
+fmt.Println(result.Suggestions)
+
+// Score a prompt (0-10)
+score, _ := c.PromptScore(ctx, jc.PromptScoreRequest{
+    Prompt: "Explain quantum entanglement using analogies suitable for a physics undergrad",
+})
+fmt.Printf("Score: %.1f\n", score.Score)
+
+// x402 wallet auth
+c402, _ := jc.NewClient(jc.WithPrivateKey(os.Getenv("JARVISCLAW_WALLET_KEY")))
+result, _ = c402.PromptCoach(ctx, jc.PromptCoachRequest{Prompt: "make AI do stuff"})
+fmt.Println(result.OptimizedPrompt)
 ```
 
 ### SearchClient
