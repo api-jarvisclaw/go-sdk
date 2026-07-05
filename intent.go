@@ -179,3 +179,89 @@ func (c *Client) ListIntentTypes(ctx context.Context) ([]string, error) {
 	}
 	return resp.IntentTypes, nil
 }
+
+// ── Discovery & Subscription ─────────────────────────────────────────────────
+
+// DiscoverRequest is the input for intent-based provider discovery.
+type DiscoverRequest struct {
+	Intent      string       `json:"intent"`
+	Constraints *Constraints `json:"constraints,omitempty"`
+	Preferences *Preferences `json:"preferences,omitempty"`
+}
+
+// DiscoverResponse is the result of a discovery query.
+type DiscoverResponse struct {
+	Providers []DiscoveredProvider `json:"providers"`
+	Total     int                  `json:"total"`
+}
+
+// DiscoveredProvider represents a provider found via discovery.
+type DiscoveredProvider struct {
+	ProviderID string   `json:"provider_id"`
+	Name       string   `json:"name"`
+	BaseURL    string   `json:"base_url"`
+	Protocols  []string `json:"protocols"`
+	Intents    []string `json:"intents"`
+	PriceUSD   float64  `json:"price_usd,omitempty"`
+	Reputation float64  `json:"reputation,omitempty"`
+	LastSeen   string   `json:"last_seen,omitempty"`
+}
+
+// Discover finds providers that can fulfill a given intent across the federation.
+// POST /v1/intent/discover
+func (c *Client) Discover(ctx context.Context, req DiscoverRequest) (*DiscoverResponse, error) {
+	var resp DiscoverResponse
+	if err := c.doJSON(ctx, "POST", "/v1/intent/discover", req, &resp); err != nil {
+		return nil, fmt.Errorf("discover: %w", err)
+	}
+	return &resp, nil
+}
+
+// SubscribeRequest is the input for subscribing to intent resolution events.
+type SubscribeRequest struct {
+	IntentTypes []string `json:"intent_types"`
+	WebhookURL  string   `json:"webhook_url"`
+	Events      []string `json:"events,omitempty"` // "resolved", "executed", "failed"
+}
+
+// Subscription represents an active webhook subscription.
+type Subscription struct {
+	ID          string   `json:"id"`
+	IntentTypes []string `json:"intent_types"`
+	WebhookURL  string   `json:"webhook_url"`
+	Events      []string `json:"events"`
+	CreatedAt   string   `json:"created_at"`
+	Status      string   `json:"status"` // "active", "paused"
+}
+
+// Subscribe creates a webhook subscription for intent events.
+// POST /v1/intent/subscribe
+func (c *Client) Subscribe(ctx context.Context, req SubscribeRequest) (*Subscription, error) {
+	var resp Subscription
+	if err := c.doJSON(ctx, "POST", "/v1/intent/subscribe", req, &resp); err != nil {
+		return nil, fmt.Errorf("subscribe: %w", err)
+	}
+	return &resp, nil
+}
+
+// Unsubscribe removes a webhook subscription by ID.
+// DELETE /v1/intent/subscribe/:id
+func (c *Client) Unsubscribe(ctx context.Context, subscriptionID string) error {
+	path := fmt.Sprintf("/v1/intent/subscribe/%s", subscriptionID)
+	if err := c.doJSON(ctx, "DELETE", path, nil, nil); err != nil {
+		return fmt.Errorf("unsubscribe: %w", err)
+	}
+	return nil
+}
+
+// ListSubscriptions returns all active subscriptions for the authenticated user.
+// GET /v1/intent/subscribe
+func (c *Client) ListSubscriptions(ctx context.Context) ([]Subscription, error) {
+	var resp struct {
+		Subscriptions []Subscription `json:"subscriptions"`
+	}
+	if err := c.doJSON(ctx, "GET", "/v1/intent/subscribe", nil, &resp); err != nil {
+		return nil, fmt.Errorf("list subscriptions: %w", err)
+	}
+	return resp.Subscriptions, nil
+}
