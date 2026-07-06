@@ -1,9 +1,13 @@
 package jarvisclaw
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
 )
 
 // ResolveRequest is the input for intent resolution.
@@ -217,31 +221,74 @@ func (c *Client) Discover(ctx context.Context, req DiscoverRequest) (*DiscoverRe
 	return &resp, nil
 }
 
-// SubscribeRequest is the input for subscribing to intent resolution events.
+// SubscribeRequest is the input for subscribing to intent resolution events via SSE.
 type SubscribeRequest struct {
-	IntentTypes []string `json:"intent_types"`
-	WebhookURL  string   `json:"webhook_url"`
-	Events      []string `json:"events,omitempty"` // "resolved", "executed", "failed"
+	Intent  string         `json:"intent"`
+	Payload map[string]any `json:"payload,omitempty"`
 }
 
-// Subscription represents an active webhook subscription.
+// SSEEvent represents a single Server-Sent Event from the subscribe stream.
+type SSEEvent struct {
+	Event string `json:"event"` // "token", "provider_selected", "intent_resolved", "done", etc.
+	Data  string `json:"data"`
+}
+
+// SSEStream is a streaming reader for Server-Sent Events.
+type SSEStream struct {
+	resp    *http.Response
+	scanner *bufio.Scanner
+}
+
+// Next reads the next SSE event from the stream.
+// Returns io.EOF when the stream is exhausted.
+func (s *SSEStream) Next() (*SSEEvent, error) {
+	var event, data string
+	for s.scanner.Scan() {
+		line := s.scanner.Text()
+		if line == "" {
+			// Empty line = event boundary
+			if event != "" || data != "" {
+				return &SSEEvent{Event: event, Data: data}, nil
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "event: ") {
+			event = strings.TrimPrefix(line, "event: ")
+		} else if strings.HasPrefix(line, "data: ") {
+			data = strings.TrimPrefix(line, "data: ")
+		}
+	}
+	if err := s.scanner.Err(); err != nil {
+		return nil, err
+	}
+	return nil, io.EOF
+}
+
+// Close releases the underlying HTTP response body.
+func (s *SSEStream) Close() error {
+	return s.resp.Body.Close()
+}
+
+// Subscribe opens a streaming SSE connection for real-time intent resolution events.
+// POST /v1/intent/subscribe — requires auth.
+// Caller must call stream.Close() when done.
+func (c *Client) Subscribe(ctx context.Context, req SubscribeRequest) (*SSEStream, error) {
+	resp, err := c.doPostRawCtx(ctx, "/v1/intent/subscribe", req)
+	if err != nil {
+		return nil, fmt.Errorf("subscribe: %w", err)
+	}
+	return &SSEStream{
+		resp:    resp,
+		scanner: bufio.NewScanner(resp.Body),
+	}, nil
+}
+
+// Subscription represents an active event subscription.
 type Subscription struct {
 	ID          string   `json:"id"`
 	IntentTypes []string `json:"intent_types"`
-	WebhookURL  string   `json:"webhook_url"`
-	Events      []string `json:"events"`
-	CreatedAt   string   `json:"created_at"`
 	Status      string   `json:"status"` // "active", "paused"
-}
-
-// Subscribe creates a webhook subscription for intent events.
-// POST /v1/intent/subscribe
-func (c *Client) Subscribe(ctx context.Context, req SubscribeRequest) (*Subscription, error) {
-	var resp Subscription
-	if err := c.doJSON(ctx, "POST", "/v1/intent/subscribe", req, &resp); err != nil {
-		return nil, fmt.Errorf("subscribe: %w", err)
-	}
-	return &resp, nil
+	CreatedAt   string   `json:"created_at"`
 }
 
 // Unsubscribe removes a webhook subscription by ID.
