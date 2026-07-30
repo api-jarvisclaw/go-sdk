@@ -18,30 +18,25 @@ type PromptCoachRequest struct {
 }
 
 // PromptCoachResponse is the result of a prompt optimization request.
+//
+// ScoreBefore and ScoreAfter are integers on a 1-100 scale, not 0-10.
 type PromptCoachResponse struct {
+	OriginalPrompt  string   `json:"original_prompt"`
 	OptimizedPrompt string   `json:"optimized_prompt"`
+	Explanation     string   `json:"explanation"`
+	ScoreBefore     int      `json:"score_before"`
+	ScoreAfter      int      `json:"score_after"`
 	Suggestions     []string `json:"suggestions"`
-	Score           float64  `json:"score"`
-	ScoreBefore     float64  `json:"score_before"`
-	ScoreAfter      float64  `json:"score_after"`
+	ModelUsed       string   `json:"model_used"`
 }
 
-// PromptScoreRequest is the input for prompt scoring (without optimization).
-type PromptScoreRequest struct {
-	Prompt string `json:"prompt"`
-	Model  string `json:"model,omitempty"`
-}
-
-// PromptScoreResponse is the result of a prompt scoring request.
-type PromptScoreResponse struct {
-	Score     float64            `json:"score"`
-	Breakdown map[string]float64 `json:"breakdown"`
-}
-
-// PromptCoach optimizes a prompt and returns improvement suggestions.
-// Fixed pricing: $0.002 USDC per request.
+// PromptCoach optimizes a prompt and returns improvement suggestions plus a
+// before/after quality score.
 //
 // POST /v1/prompt-coach/optimize — requires auth (API key or x402).
+//
+// The coaching model is chosen by the gateway; PromptCoachRequest.Model only
+// tells the coach which model the prompt is *destined for*.
 //
 // Example:
 //
@@ -50,22 +45,20 @@ type PromptScoreResponse struct {
 //	    Context: "high-quality image generation prompt",
 //	})
 //	fmt.Println(result.OptimizedPrompt)
+//
+// There is no separate score-only endpoint: call this and read ScoreBefore.
 func (c *Client) PromptCoach(ctx context.Context, req PromptCoachRequest) (*PromptCoachResponse, error) {
-	var resp PromptCoachResponse
-	if err := c.doJSON(ctx, "POST", "/v1/prompt-coach/optimize", req, &resp); err != nil {
+	// The handler wraps its result as {"success":true,"data":{...}} rather than
+	// returning the object at the top level.
+	var envelope struct {
+		Success bool                `json:"success"`
+		Data    PromptCoachResponse `json:"data"`
+	}
+	if err := c.doJSON(ctx, "POST", "/v1/prompt-coach/optimize", req, &envelope); err != nil {
 		return nil, fmt.Errorf("prompt coach optimize: %w", err)
 	}
-	return &resp, nil
-}
-
-// PromptScore evaluates a prompt's quality without optimizing it.
-// Fixed pricing: $0.002 USDC per request.
-//
-// POST /v1/prompt-coach/score — requires auth (API key or x402).
-func (c *Client) PromptScore(ctx context.Context, req PromptScoreRequest) (*PromptScoreResponse, error) {
-	var resp PromptScoreResponse
-	if err := c.doJSON(ctx, "POST", "/v1/prompt-coach/score", req, &resp); err != nil {
-		return nil, fmt.Errorf("prompt coach score: %w", err)
+	if !envelope.Success {
+		return nil, fmt.Errorf("prompt coach optimize: server reported failure")
 	}
-	return &resp, nil
+	return &envelope.Data, nil
 }

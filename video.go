@@ -181,7 +181,7 @@ func (vc *VideoClient) wait(ctx context.Context, jobID string) (*VideoJob, error
 }
 
 func videoJobFromRaw(raw map[string]any) (*VideoJob, error) {
-	job := &VideoJob{}
+	job := &VideoJob{Raw: raw}
 	if v, ok := raw["id"].(string); ok {
 		job.ID = v
 	}

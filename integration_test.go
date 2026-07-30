@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	jarvisclaw "github.com/api-jarvisclaw/go-sdk"
+	jarvisclaw "github.com/api-jarvisclaw/go-sdk/v2"
 )
 
 // ─── Test helpers ──────────────────────────────────────────
