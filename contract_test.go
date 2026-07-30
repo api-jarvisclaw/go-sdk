@@ -855,3 +855,123 @@ func TestContractUnauthorizedIsTyped(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// ─── Regressions found by running the examples against the live gateway ──────
+
+// newMarketplaceStub is the MarketplaceClient counterpart to newStub.
+func newMarketplaceStub(t *testing.T, status int, body string) (*jarvisclaw.MarketplaceClient, *struct {
+	Method string
+	Path   string
+	Query  string
+}) {
+	t.Helper()
+	seen := &struct {
+		Method string
+		Path   string
+		Query  string
+	}{}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen.Method = r.Method
+		seen.Path = r.URL.Path
+		seen.Query = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+
+	mc, err := jarvisclaw.NewMarketplaceClient(
+		jarvisclaw.WithAPIKey("sk-test"),
+		jarvisclaw.WithBaseURL(srv.URL),
+	)
+	if err != nil {
+		t.Fatalf("new marketplace client: %v", err)
+	}
+	return mc, seen
+}
+
+// Call joined service and path with no separator, so a path without a leading
+// slash produced "/v1/marketplace/surfexchange/price" and the gateway answered
+// 404 "service 'surfexchange' not found".
+func TestContractMarketplaceCallJoinsPath(t *testing.T) {
+	for _, tc := range []struct {
+		name, service, path, want string
+	}{
+		{"no leading slash", "surf", "exchange/price", "/v1/marketplace/surf/exchange/price"},
+		{"leading slash", "defi", "/protocols", "/v1/marketplace/defi/protocols"},
+		{"trailing slash on service", "surf/", "exchange/price", "/v1/marketplace/surf/exchange/price"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mc, seen := newMarketplaceStub(t, 200, `{"ok":true}`)
+			if _, err := mc.Call(context.Background(), tc.service, tc.path); err != nil {
+				t.Fatalf("call: %v", err)
+			}
+			if seen.Path != tc.want {
+				t.Errorf("path = %q, want %q", seen.Path, tc.want)
+			}
+		})
+	}
+}
+
+func TestContractMarketplaceCallForwardsParams(t *testing.T) {
+	mc, seen := newMarketplaceStub(t, 200, `{"ok":true}`)
+
+	_, err := mc.Call(context.Background(), "surf", "exchange/price",
+		jarvisclaw.WithParams(map[string]string{"symbol": "BTC"}))
+	if err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	if seen.Query != "symbol=BTC" {
+		t.Errorf("query = %q, want symbol=BTC", seen.Query)
+	}
+}
+
+// Chat had no way to set max_tokens, and temperature used a plain float64 with a
+// non-zero check — so WithTemperature(0), meaning deterministic output, was
+// indistinguishable from unset and silently dropped.
+func TestContractChatSendsExplicitZeroAndMaxTokens(t *testing.T) {
+	seen := &struct{ Body string }{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		seen.Body = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	cc, err := jarvisclaw.NewChatClient(
+		jarvisclaw.WithAPIKey("sk-test"),
+		jarvisclaw.WithBaseURL(srv.URL),
+	)
+	if err != nil {
+		t.Fatalf("new chat client: %v", err)
+	}
+
+	_, err = cc.Complete(context.Background(), "hi",
+		jarvisclaw.WithChatModel("openai/gpt-4o-mini"),
+		jarvisclaw.WithTemperature(0),
+		jarvisclaw.WithMaxTokens(5),
+		jarvisclaw.WithSeed(7),
+	)
+	if err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal([]byte(seen.Body), &body); err != nil {
+		t.Fatalf("unmarshal sent body: %v", err)
+	}
+	temp, ok := body["temperature"]
+	if !ok {
+		t.Error("temperature absent: an explicit 0 must still be sent")
+	} else if temp.(float64) != 0 {
+		t.Errorf("temperature = %v, want 0", temp)
+	}
+	if body["max_tokens"] != float64(5) {
+		t.Errorf("max_tokens = %v, want 5", body["max_tokens"])
+	}
+	if body["seed"] != float64(7) {
+		t.Errorf("seed = %v, want 7", body["seed"])
+	}
+}

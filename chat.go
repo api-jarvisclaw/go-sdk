@@ -24,9 +24,17 @@ func NewChatClient(opts ...Option) (*ChatClient, error) {
 type ChatOption func(*chatOpts)
 
 type chatOpts struct {
-	Model       string
-	System      string
-	Temperature float64
+	Model  string
+	System string
+	// Pointers so that an explicitly-set zero value is still sent upstream.
+	// temperature=0 means deterministic output, which a plain float64 would
+	// have been indistinguishable from "unset" and silently dropped.
+	Temperature *float64
+	MaxTokens   *int
+	TopP        *float64
+	Stop        []string
+	Seed        *int
+	Extra       map[string]any
 }
 
 // WithModel sets the model for a chat call. Defaults to "auto".
@@ -37,8 +45,57 @@ func WithChatModel(model string) ChatOption {
 // WithSystem sets a system prompt for the chat call.
 func WithSystem(s string) ChatOption { return func(o *chatOpts) { o.System = s } }
 
-// WithTemperature sets the sampling temperature.
-func WithTemperature(t float64) ChatOption { return func(o *chatOpts) { o.Temperature = t } }
+// WithTemperature sets the sampling temperature. Zero is honoured.
+func WithTemperature(t float64) ChatOption { return func(o *chatOpts) { o.Temperature = &t } }
+
+// WithMaxTokens caps the response length.
+//
+// Worth setting on a low balance: the gateway reserves against the model's full
+// output allowance before the call, so an uncapped request can be refused even
+// when the actual reply would have been cheap.
+func WithMaxTokens(n int) ChatOption { return func(o *chatOpts) { o.MaxTokens = &n } }
+
+// WithTopP sets nucleus sampling. Zero is honoured.
+func WithTopP(p float64) ChatOption { return func(o *chatOpts) { o.TopP = &p } }
+
+// WithStop sets stop sequences.
+func WithStop(seqs ...string) ChatOption { return func(o *chatOpts) { o.Stop = seqs } }
+
+// WithSeed requests reproducible sampling where the provider supports it.
+func WithSeed(n int) ChatOption { return func(o *chatOpts) { o.Seed = &n } }
+
+// WithChatParam sets an arbitrary request parameter, for provider-specific
+// options this package does not model explicitly.
+func WithChatParam(key string, value any) ChatOption {
+	return func(o *chatOpts) {
+		if o.Extra == nil {
+			o.Extra = map[string]any{}
+		}
+		o.Extra[key] = value
+	}
+}
+
+// applyTo writes the configured parameters onto a request payload.
+func (o *chatOpts) applyTo(payload map[string]any) {
+	if o.Temperature != nil {
+		payload["temperature"] = *o.Temperature
+	}
+	if o.MaxTokens != nil {
+		payload["max_tokens"] = *o.MaxTokens
+	}
+	if o.TopP != nil {
+		payload["top_p"] = *o.TopP
+	}
+	if len(o.Stop) > 0 {
+		payload["stop"] = o.Stop
+	}
+	if o.Seed != nil {
+		payload["seed"] = *o.Seed
+	}
+	for k, v := range o.Extra {
+		payload[k] = v
+	}
+}
 
 // Complete sends a single user message and returns the assistant's response text.
 // Model defaults to "auto" if not specified via WithChatModel.
@@ -67,9 +124,7 @@ func (cc *ChatClient) Completion(ctx context.Context, messages []Message, opts .
 		"model":    o.Model,
 		"messages": messages,
 	}
-	if o.Temperature != 0 {
-		payload["temperature"] = o.Temperature
-	}
+	o.applyTo(payload)
 
 	raw, err := cc.doPostCtx(ctx, "/v1/chat/completions", payload)
 	if err != nil {
@@ -113,9 +168,7 @@ func (cc *ChatClient) Stream(ctx context.Context, message string, opts ...ChatOp
 		"messages": messages,
 		"stream":   true,
 	}
-	if o.Temperature != 0 {
-		payload["temperature"] = o.Temperature
-	}
+	o.applyTo(payload)
 
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {

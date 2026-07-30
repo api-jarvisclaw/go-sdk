@@ -161,3 +161,26 @@ func (c *Client) Responses(ctx context.Context, req map[string]any) (map[string]
 	}
 	return c.doPostCtx(ctx, "/v1/responses", req)
 }
+
+// EmbedBatch returns one vector per input string, in input order.
+//
+// Results are sorted by the response's index field rather than trusting array
+// order, which the API does not guarantee.
+func (c *Client) EmbedBatch(ctx context.Context, model string, texts []string) ([][]float64, error) {
+	if len(texts) == 0 {
+		return nil, fmt.Errorf("embed batch: texts is required")
+	}
+	resp, err := c.Embeddings(ctx, EmbeddingRequest{Model: model, Input: texts})
+	if err != nil {
+		return nil, err
+	}
+	out := make([][]float64, len(resp.Data))
+	for _, item := range resp.Data {
+		if item.Index < 0 || item.Index >= len(out) {
+			return nil, fmt.Errorf("embed batch: response index %d out of range for %d inputs",
+				item.Index, len(out))
+		}
+		out[item.Index] = item.Embedding
+	}
+	return out, nil
+}
