@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	jarvisclaw "github.com/api-jarvisclaw/go-sdk"
+	jarvisclaw "github.com/api-jarvisclaw/go-sdk/v2"
 )
 
 // Targeted tests for previously failing scenarios from the retest report.

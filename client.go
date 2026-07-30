@@ -33,7 +33,7 @@ import (
 
 const (
 	DefaultBaseURL = "https://api.jarvisclaw.ai"
-	Version        = "1.2.0"
+	Version        = "2.0.0"
 
 	maxRetries = 3
 )
@@ -178,6 +178,36 @@ func (c *Client) doGetCtx(ctx context.Context, path string, params map[string]st
 	}
 	c.applyAuth(req)
 	return c.executeJSON(req, nil)
+}
+
+// doGetInto performs a GET request with context and unmarshals the JSON
+// response into dest. Unlike doGetCtx it does not require the response to be a
+// JSON object, and it decodes straight into a typed destination.
+func (c *Client) doGetInto(ctx context.Context, path string, params map[string]string, dest any) error {
+	u := c.buildURL(path, params)
+	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
+	if err != nil {
+		return err
+	}
+	c.applyAuth(req)
+
+	resp, err := c.executeRaw(req, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if dest == nil {
+		return nil
+	}
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
+	if err := json.Unmarshal(respBytes, dest); err != nil {
+		return fmt.Errorf("unmarshal response: %w", err)
+	}
+	return nil
 }
 
 // doPostCtx performs a POST request with context and returns parsed JSON.

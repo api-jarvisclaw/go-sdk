@@ -5,7 +5,7 @@ Go SDK for [JarvisClaw AI](https://jarvisclaw.ai) — intent-based AI routing wi
 ## Install
 
 ```bash
-go get github.com/api-jarvisclaw/go-sdk@latest
+go get github.com/api-jarvisclaw/go-sdk/v2@latest
 ```
 
 ## Quick Start
@@ -18,7 +18,7 @@ import (
     "fmt"
     "os"
 
-    jc "github.com/api-jarvisclaw/go-sdk"
+    jc "github.com/api-jarvisclaw/go-sdk/v2"
 )
 
 func main() {
@@ -74,34 +74,77 @@ fmt.Printf("Best: %s at $%.6f/req\n", resp.Matches[0].Model, resp.Matches[0].Est
 ### Execute (Resolve + Call in One Step)
 
 ```go
+// One-shot: resolve the cheapest provider within budget, then chat.
 text, _ := client.Ask(ctx, "Write a haiku about Go",
     jc.AskOptions{Budget: 0.02, Optimize: "quality"})
 fmt.Println(text)
+
+// Full control: forward an arbitrary payload to the resolved provider.
+raw, _ := client.Execute(ctx, jc.ExecuteRequest{
+    Intent:  "chat_completion",
+    Payload: map[string]any{"messages": []map[string]string{{"role": "user", "content": "Hi"}}},
+})
+
+// With a hard spend cap and settlement details in the response.
+result, _ := client.ExecuteBudget(ctx, jc.ExecuteBudgetRequest{
+    Intent:  "chat_completion",
+    Budget:  jc.Budget{MaxTotalUSD: 0.01},
+    Payload: map[string]any{"messages": []map[string]string{{"role": "user", "content": "Hi"}}},
+})
+fmt.Println(result.Status, *result.ActualCostUSD)
 ```
 
 ### Streaming
 
+Two options. `ChatStream` streams text deltas from a model you name; `Subscribe`
+resolves the provider first and gives you the raw SSE events.
+
 ```go
-stream, _ := client.Stream(ctx, jc.StreamRequest{
-    Intent:  "chat_completion",
-    Payload: map[string]any{"messages": []map[string]string{{"role": "user", "content": "Count to 10"}}},
-    Budget:  jc.Budget{MaxTotalUSD: 0.01},
-})
-for chunk := range stream.Channel() {
+// Text deltas, model chosen by you (or "auto").
+chunks, _ := client.ChatStream(ctx, "auto", "Count to 10")
+for chunk := range chunks {
     fmt.Print(chunk)
+}
+
+// Intent-routed SSE. The first event is "metadata", the last is "done".
+stream, _ := client.Subscribe(ctx, jc.SubscribeRequest{
+    Intent:      "chat_completion",
+    Payload:     map[string]any{"messages": []map[string]string{{"role": "user", "content": "Count to 10"}}},
+    OptimizeFor: "speed",
+})
+defer stream.Close()
+for {
+    ev, err := stream.Next()
+    if err != nil {
+        break // io.EOF at end of stream
+    }
+    fmt.Printf("[%s] %s\n", ev.Event, ev.Data)
 }
 ```
 
 ### Wallet
 
 ```go
+// Spendable balance in USD. x402 mode reads USDC on Base directly from chain.
 balance, _ := client.GetBalance(ctx)
 fmt.Printf("$%.2f USDC\n", balance)
 
-// Wallet pools & limits
+// Per-chain detail
+wb, _ := client.WalletBalance(ctx)
+fmt.Println(wb.Wallets.Base.USDC, wb.Wallets.Solana.USDC, wb.TotalUSD())
+
 pools, _ := client.WalletPools(ctx)
-limits, _ := client.WalletLimits(ctx)
-client.SetWalletLimits(ctx, jc.WalletLimits{DailyMaxUSD: 30.0})
+fmt.Println(pools.Allocation.Operations, pools.PoolBalances.Operations)
+
+// Limits: PUT replaces the whole record, so change one field via
+// UpdateWalletLimit rather than SetWalletLimits — otherwise the fields you
+// leave unset are stored as zero.
+client.UpdateWalletLimit(ctx, func(l *jc.WalletLimits) {
+    l.DailyMaxUSD = 30.0
+})
+
+history, _ := client.WalletHistory(ctx, 1, 20)
+fmt.Println(history.Total)
 ```
 
 ### Prompt Coach
@@ -113,11 +156,85 @@ result, _ := client.PromptCoach(ctx, jc.PromptCoachRequest{
 })
 fmt.Println(result.OptimizedPrompt)
 fmt.Println(result.Suggestions)
+// Scores are integers on a 1-100 scale. There is no score-only endpoint;
+// read ScoreBefore to grade a prompt as-is.
+fmt.Printf("%d → %d\n", result.ScoreBefore, result.ScoreAfter)
+```
 
-score, _ := client.PromptScore(ctx, jc.PromptScoreRequest{
-    Prompt: "Explain quantum entanglement using analogies for a physics undergrad",
+### Analytics
+
+```go
+// Spend and settlement, aggregated. A non-admin caller always sees only their
+// own data — the scope is enforced server-side, not by these parameters.
+rows, _ := client.Spend(ctx, jc.AnalyticsParams{
+    Period:  "30d",
+    GroupBy: []string{"day", "model"},
 })
-fmt.Printf("Score: %.1f/10\n", score.Score)
+for _, r := range rows {
+    fmt.Printf("%s %s $%.4f (%d reqs)\n", r.Day, r.Model, r.TotalCostUSD, r.TotalReqs)
+}
+
+byModel, _ := client.CostByModel(ctx, jc.AnalyticsParams{Period: "7d"})
+trend, _ := client.DailyTrend(ctx, jc.AnalyticsParams{Period: "30d"})
+```
+
+### Discovery
+
+```go
+// What this gateway and its peers can do.
+d, _ := client.Discover(ctx, jc.DiscoverRequest{Intent: "web_search", MaxPrice: 0.02})
+fmt.Println(d.Total, len(d.Federated))
+
+// Free, unauthenticated variant.
+d2, _ := client.DiscoverPublic(ctx, jc.DiscoverRequest{})
+
+// Natural-language routing. Status may be "clarify", in which case ask
+// Clarify.Question and retry with the same SessionID.
+nr, _ := client.ResolveNatural(ctx, jc.NaturalResolveRequest{
+    Query: "find me recent papers about MoE routing",
+})
+if nr.Status == "clarify" {
+    fmt.Println(nr.Clarify.Question, nr.Clarify.Options)
+}
+
+stats, _ := client.NetworkStats(ctx)
+fmt.Println(stats.TotalProviders, stats.IntentTypes)
+```
+
+### Embeddings, Rerank, Moderation
+
+```go
+vec, _ := client.Embed(ctx, "text-embedding-3-small", "hello world")
+
+ranked, _ := client.RerankTexts(ctx, "rerank-v1", "cats",
+    []string{"dogs are loyal", "cats are independent", "birds sing"})
+fmt.Println(ranked[0].Index, ranked[0].RelevanceScore)
+
+flags, _ := client.Moderate(ctx, "", "some text to classify")
+```
+
+### Community APIs (UAPI)
+
+```go
+apis, total, _ := client.ListUserAPIs(ctx, jc.UserAPIListParams{Category: "data", PageSize: 10})
+fmt.Println(total, apis[0].Slug, apis[0].PricePerCall)
+
+// Invoke one — the gateway pays the provider on your behalf.
+body, _ := client.CallUserAPI(ctx, "POST", "weather", "forecast", map[string]any{"city": "Tokyo"})
+fmt.Println(string(body))
+```
+
+### Federation
+
+```go
+// Public registry — no admin rights needed.
+resources, _ := client.SearchFederation(ctx, jc.FederationSearchParams{Query: "price", Limit: 10})
+servers, total, _ := client.ListFederationServers(ctx, 1, 20)
+
+// Peer management requires a dashboard session or access token, not an API key.
+peers, _ := client.FederationPeers(ctx)
+client.AddFederationPeer(ctx, "peer.example.com")
+client.RemoveFederationPeer(ctx, "peer.example.com") // by domain, not id
 ```
 
 ---
@@ -156,11 +273,18 @@ for chunk := range sr.Channel() {
 ```go
 img, _ := jc.NewImageClient(jc.WithPrivateKey(os.Getenv("JARVISCLAW_WALLET_KEY")))
 
+// Blocking. Fast models answer inline; slower ones return a job that Generate
+// polls to completion for you.
 result, _ := img.Generate(ctx, "A cat in space",
     jc.WithSize("1024x1024"),
     jc.WithImageModel("auto/image"),
 )
 fmt.Println(result.URL)
+
+// Non-blocking
+job, _ := img.Generate(ctx, "A cat in space", jc.WithImageWait(false))
+status, _ := img.Status(ctx, job.ID)
+fmt.Println(status.Done(), status.URL)
 ```
 
 ### VideoClient
@@ -189,6 +313,18 @@ os.WriteFile("output.mp3", resp.Data, 0644)
 // Music generation
 music, _ := audio.Music(ctx, "a calm lo-fi beat", jc.WithInstrumental(true))
 fmt.Println(music.URL)
+
+// Speech-to-text. Pass a seekable reader: with x402 the request is replayed
+// after payment, so the audio has to be readable twice.
+f, _ := os.Open("meeting.mp3")
+defer f.Close()
+tr, _ := audio.Transcribe(ctx, jc.TranscriptionRequest{
+    Model:    "whisper-1",
+    Filename: "meeting.mp3",
+    Audio:    f,
+    Language: "en",
+})
+fmt.Println(tr.Text)
 ```
 
 ### SearchClient
@@ -372,9 +508,91 @@ jc.NewClient(
 )
 ```
 
+## Migration to v2
+
+v2 fixes a build failure and removes methods that called gateway routes which no
+longer exist.
+
+**Import path.** Go requires a new module path for v2, so update your imports:
+
+```go
+// before
+import jc "github.com/api-jarvisclaw/go-sdk"
+
+// after
+import jc "github.com/api-jarvisclaw/go-sdk/v2"
+```
+
+```bash
+go get github.com/api-jarvisclaw/go-sdk/v2@latest
+```
+
+`go get -u` will not carry you across this boundary — that is deliberate, since
+everything below is breaking.
+
+**Build.** v1.2 and v1.3 did not compile at all: `go-ethereum v1.14.12` pulled in
+a `go-kzg-4844` incompatible with the `gnark-crypto` version MVS selected, so
+`go build` failed for the package and for anything importing it. Fixed by moving
+to `go-ethereum v1.17.0`, which raises the minimum Go to 1.24.
+
+**Analytics.** `/v1/aip/analytics/*` was consolidated into
+`/api/analytics/aggregate`, so these were 404ing:
+
+| Removed | Use instead |
+|---|---|
+| `CostSummary` | `Spend` |
+| `CostTrend` | `DailyTrend` |
+| `ModelBreakdown` | `CostByModel` |
+| `ROI` | `Spend` and compute from `TotalQuota` / `TotalCostUSD` |
+| `BudgetStatus` | `Spend` and compare against your own limits |
+
+`AnalyticsParams` changed with them: `Period` and `GroupBy` replace
+`Start`/`End`/`TopN`/`Scope`. Scope is enforced from your credentials.
+
+**Wallet.** `WalletBalance` matched a response shape the gateway had already
+dropped, so it decoded to an all-zero struct without erroring. `Quota`,
+`QuotaUSD`, `HDWallet` and `Subscription` are gone; read `BalanceUSD`,
+`Wallets.Base` / `Wallets.Solana`, or `TotalUSD()`.
+
+`WalletPools` fields are now structs (`PoolAllocation`, `PoolBalances`) instead of
+maps. `SetWalletLimits` replaces the whole record — use `UpdateWalletLimit` for
+single-field changes.
+
+**Balance.** `GetBalance` in API-key mode read `/api/user/self`, which requires a
+dashboard session an API key cannot provide. It now uses
+`/v1/dashboard/billing/subscription`.
+
+**Federation.** `DeleteFederationPeer(id)` became `RemoveFederationPeer(domain)` —
+the server identifies peers by domain in the body, not by id in the path.
+`FederationCrawl` no longer takes a `CrawlRequest`; the server crawls every
+registered peer. `FederationPeers` returns `[]FederationPeer` directly, with
+camelCase-tagged fields matching what the server actually sends.
+
+**Prompt coach.** `PromptScore` and its types are gone: `/v1/prompt-coach/score`
+never existed. `PromptCoachResponse` now matches the real payload — integer
+`ScoreBefore`/`ScoreAfter` on a 1-100 scale, plus `Explanation` and `ModelUsed`.
+
+**Prediction.** `Prediction` takes a `body` argument and prefixes `/v1/prediction`
+for you. The route is singular; the old doc comment said `/v1/predictions/`.
+
+**Discover.** `DiscoverRequest` and `DiscoverResponse` were both wrong. The
+request takes `Intent`, `Features` and `MaxPrice`; the response carries `Intents`,
+`Providers`, `Federated` and `Total`.
+
+**ListProviders** returns `[]Provider` (registry entries) rather than `[]Match`,
+which is the ranked-resolution type.
+
+**New.** `Embeddings`, `Embed`, `Rerank`, `RerankTexts`, `Moderate`, `Responses`,
+`AudioClient.Transcribe`, `ImageClient.Status` with async polling,
+`ResolveNatural`, `NetworkStats`, `DiscoverPublic`, `SearchFederation`,
+`ListFederationServers`, `ListFederationResources`, `FederationExecute`,
+`ListUserAPIs`, `GetUserAPI`, `CallUserAPI`, and the `Float64Ptr`/`IntPtr`/
+`BoolPtr`/`StringPtr` helpers.
+
 ## Requirements
 
-- Go >= 1.22
+- Go >= 1.24 (set by `go.mod`; the `go-ethereum` dependency used for x402
+  EIP-712 signing requires it)
 
 ## Links
 

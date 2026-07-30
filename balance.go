@@ -15,24 +15,37 @@ const (
 	usdcContract = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 )
 
-// GetBalance returns the current balance in USD.
-// x402 mode: queries on-chain USDC balance via public Base RPC.
-// API Key mode: queries account quota from the server.
+// GetBalance returns the current spendable balance in USD.
+//
+// x402 mode: queries the wallet's on-chain USDC balance on Base via public RPC.
+// Only Base is checked — this SDK signs Base payments only.
+//
+// API Key mode: reads the OpenAI-compatible billing endpoint
+// GET /v1/dashboard/billing/subscription. When the account has an HD deposit
+// wallet the gateway reports the real on-chain balance there; otherwise it
+// reports the ledger quota converted to USD.
+//
+// Note this is NOT /api/user/self: that route requires a dashboard session or
+// access token plus a New-Api-User header, which an API key cannot satisfy.
 func (c *Client) GetBalance(ctx context.Context) (float64, error) {
 	if c.privateKey != nil {
 		return c.queryOnchainBalance(ctx)
 	}
-	// API Key mode — query server
-	raw, err := c.doGetCtx(ctx, "/api/user/self", nil)
-	if err != nil {
+	var resp struct {
+		HardLimitUSD float64 `json:"hard_limit_usd"`
+		Error        *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	// This endpoint answers 200 with an {"error":{...}} body on failure instead of
+	// a 4xx, so the status check in executeRaw cannot catch it.
+	if err := c.doGetInto(ctx, "/v1/dashboard/billing/subscription", nil, &resp); err != nil {
 		return 0, err
 	}
-	data, _ := raw["data"].(map[string]any)
-	if data == nil {
-		return 0, nil
+	if resp.Error != nil && resp.Error.Message != "" {
+		return 0, &APIError{StatusCode: 200, Message: resp.Error.Message}
 	}
-	quota, _ := data["quota"].(float64)
-	return quota / 500000.0, nil
+	return resp.HardLimitUSD, nil
 }
 
 func (c *Client) queryOnchainBalance(ctx context.Context) (float64, error) {

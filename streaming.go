@@ -15,6 +15,11 @@ func parseSSEStream(ctx context.Context, r io.ReadCloser, ch chan<- string) {
 	defer close(ch)
 	defer r.Close()
 	scanner := bufio.NewScanner(r)
+	// bufio.Scanner caps a token at 64 KiB by default. A single chat chunk can
+	// exceed that (long tool-call arguments, inlined images), which would end the
+	// stream early with ErrTooLong and truncate the answer without an error the
+	// caller can see. Match the gateway's own 1 MiB relay cap.
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		// Check context cancellation before processing
 		select {
