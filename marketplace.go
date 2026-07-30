@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // MarketplaceClient provides access to generic marketplace services.
@@ -30,20 +31,32 @@ func WithParams(params map[string]string) MarketplaceOption {
 	return func(o *marketplaceOpts) { o.Params = params }
 }
 
+// marketplacePath joins a service name and a path under /v1/marketplace/.
+//
+// The separator has to be inserted here rather than left to the caller: joining
+// service and path directly produced "surfexchange/price" for
+// Call(ctx, "surf", "exchange/price"), which the gateway rejects as an unknown
+// service. Only callers that happened to pass a leading slash worked.
+func marketplacePath(service, path string) string {
+	return "/v1/marketplace/" +
+		strings.Trim(service, "/") + "/" +
+		strings.TrimLeft(path, "/")
+}
+
 // Call performs a GET request to a marketplace service endpoint.
+//
+// Both "exchange/price" and "/exchange/price" are accepted for path.
 func (mc *MarketplaceClient) Call(ctx context.Context, service, path string, opts ...MarketplaceOption) (map[string]any, error) {
 	o := &marketplaceOpts{}
 	for _, opt := range opts {
 		opt(o)
 	}
-	fullPath := "/v1/marketplace/" + service + path
-	return mc.doGetCtx(ctx, fullPath, o.Params)
+	return mc.doGetCtx(ctx, marketplacePath(service, path), o.Params)
 }
 
 // Post performs a POST request to a marketplace service endpoint.
 func (mc *MarketplaceClient) Post(ctx context.Context, service, path string, body any) (map[string]any, error) {
-	fullPath := "/v1/marketplace/" + service + path
-	return mc.doPostCtx(ctx, fullPath, body)
+	return mc.doPostCtx(ctx, marketplacePath(service, path), body)
 }
 
 // ─── RPC Convenience Methods ─────────────────────────────────────────────────
@@ -112,4 +125,3 @@ func (mc *MarketplaceClient) DefiYields(ctx context.Context, opts ...Marketplace
 func (mc *MarketplaceClient) DefiTVL(ctx context.Context, opts ...MarketplaceOption) (map[string]any, error) {
 	return mc.Call(ctx, "defi", "/protocols", opts...)
 }
-

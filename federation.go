@@ -249,3 +249,13 @@ func (c *Client) FederationExecute(ctx context.Context, req map[string]any) (map
 	}
 	return resp, nil
 }
+
+// FederationHealth reports the federation's health status.
+// GET /v1/federation/health — public, no auth required.
+func (c *Client) FederationHealth(ctx context.Context) (map[string]any, error) {
+	var resp map[string]any
+	if err := c.doGetInto(ctx, "/v1/federation/health", nil, &resp); err != nil {
+		return nil, fmt.Errorf("federation health: %w", err)
+	}
+	return resp, nil
+}

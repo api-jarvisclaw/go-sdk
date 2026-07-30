@@ -183,3 +183,27 @@ func (c *Client) CallUserAPIRaw(ctx context.Context, method, slug, path string, 
 	}
 	return resp, nil
 }
+
+// UserAPILeaderboard returns the top published APIs by usage.
+// GET /api/user-api/leaderboard — public, no auth required.
+func (c *Client) UserAPILeaderboard(ctx context.Context) (map[string]any, error) {
+	var resp map[string]any
+	if err := c.doGetInto(ctx, "/api/user-api/leaderboard", nil, &resp); err != nil {
+		return nil, fmt.Errorf("user api leaderboard: %w", err)
+	}
+	return resp, nil
+}
+
+// UserAPIRatings returns the user ratings for a published API.
+// GET /api/user-api/ratings/{slug} — public, no auth required.
+func (c *Client) UserAPIRatings(ctx context.Context, slug string) (map[string]any, error) {
+	if slug == "" {
+		return nil, fmt.Errorf("user api ratings: slug is required")
+	}
+	var resp map[string]any
+	path := "/api/user-api/ratings/" + url.PathEscape(slug)
+	if err := c.doGetInto(ctx, path, nil, &resp); err != nil {
+		return nil, fmt.Errorf("user api ratings: %w", err)
+	}
+	return resp, nil
+}

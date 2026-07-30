@@ -8,6 +8,34 @@ Go SDK for [JarvisClaw AI](https://jarvisclaw.ai) — intent-based AI routing wi
 go get github.com/api-jarvisclaw/go-sdk/v2@latest
 ```
 
+## Examples
+
+Seven runnable programs under [examples/](examples/), each executed against the
+live gateway: `chat`, `wallet`, `intent`, `embeddings`, `analytics`,
+`federation`, `marketplace`.
+
+```bash
+export JARVISCLAW_API_KEY=sk-...
+go run ./examples/chat
+```
+
+## Two billing paths
+
+Worth knowing before your first call, because it explains a class of confusing
+failures:
+
+- **Account quota** — you name a model explicitly (`WithChatModel("openai/gpt-4o-mini")`).
+- **x402 on-chain USDC** — anything routed through `auto/*` (the default when no
+  model is given) plus every marketplace service, settled against your HD wallet.
+
+The second path needs USDC in the wallet *even with API-key auth*. Without it you
+get a settlement failure after a slow retry, or a 403 `insufficient HD wallet
+balance` — not an obvious "out of funds" message.
+
+Setting `WithMaxTokens` is also worth the keystrokes on a low balance: the
+gateway reserves against the model's full output allowance before the call, so an
+uncapped request can be refused even when the reply would have been cheap.
+
 ## Quick Start
 
 ```go
@@ -253,6 +281,18 @@ text, _ := chat.Complete(ctx, "Hello")
 
 // Specify model
 text, _ = chat.Complete(ctx, "Hello", jc.WithChatModel("openai/gpt-4o"))
+
+// Sampling and length controls. Temperature 0 is honoured rather than treated
+// as unset, so deterministic output actually reaches the provider.
+text, _ = chat.Complete(ctx, "Hello",
+    jc.WithChatModel("openai/gpt-4o-mini"),
+    jc.WithMaxTokens(60),
+    jc.WithTemperature(0),
+    jc.WithTopP(0.9),
+    jc.WithStop("\n\n"),
+    jc.WithSeed(42),
+    jc.WithChatParam("presence_penalty", 0.5), // anything not modelled above
+)
 
 // Full message array
 resp, _ := chat.Completion(ctx, []jc.Message{
@@ -507,6 +547,29 @@ jc.NewClient(
     jc.WithNetwork("eip155:8453"),       // Payment network (Base)
 )
 ```
+
+## What's new in v2.1.0
+
+Additive only — no import changes needed from v2.0.0.
+
+**Fixed:** `MarketplaceClient.Call` joined the service and path with no
+separator, so `Call(ctx, "surf", "exchange/price")` requested
+`/v1/marketplace/surfexchange/price` and the gateway answered 404. Only callers
+that happened to pass a leading slash worked. Both forms are now accepted.
+
+**Fixed:** chat had no way to set `max_tokens`, and `temperature` used a plain
+`float64` with a non-zero check — so `WithTemperature(0)`, meaning deterministic
+output, was indistinguishable from unset and silently dropped. Added
+`WithMaxTokens`, `WithTopP`, `WithStop`, `WithSeed` and `WithChatParam`, all
+pointer-backed so explicit zeros survive.
+
+**Added:** `UserAPILeaderboard`, `UserAPIRatings`, `FederationHealth`,
+`EmbedBatch`, `ExaSearch` — closing the gap against the Python SDK.
+
+**Added:** seven runnable [examples/](examples/), and a README section on the two
+billing paths.
+
+**Dependencies:** `go-ethereum` 1.17.0 → 1.17.5.
 
 ## Migration to v2
 

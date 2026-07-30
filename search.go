@@ -247,3 +247,26 @@ func parseSearchResults(raw map[string]any) []SearchResult {
 	}
 	return results
 }
+
+// ExaSearch performs neural web search via the marketplace Exa service.
+//
+// Distinct from Query: that routes /v1/search to a search-capable chat model,
+// while this hits Exa directly and returns structured results.
+//
+// Note this is a marketplace service, so it settles on-chain over x402 rather
+// than debiting account quota and needs a funded wallet.
+func (sc *SearchClient) ExaSearch(ctx context.Context, query string, opts ...SearchOption) ([]SearchResult, error) {
+	if query == "" {
+		return nil, fmt.Errorf("exa search: query is required")
+	}
+	o := &searchOpts{NumResults: 10}
+	for _, opt := range opts {
+		opt(o)
+	}
+	body := map[string]any{"query": query, "numResults": o.NumResults}
+	raw, err := sc.doPostCtx(ctx, "/v1/marketplace/exa/search", body)
+	if err != nil {
+		return nil, fmt.Errorf("exa search: %w", err)
+	}
+	return parseSearchResults(raw), nil
+}
