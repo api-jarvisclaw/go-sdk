@@ -109,6 +109,12 @@ func (c *Client) FederationCrawl(ctx context.Context) (*CrawlResult, error) {
 // SellPrice is what this gateway charges; PriceInput/PriceOutput are the peer's
 // published per-unit rates. The peer's own cost to us is never exposed.
 type FederationResource struct {
+	// ResourceID is the handle FederationExecute and MarketplaceCallAPI take.
+	//
+	// Without it SearchFederation was a dead end: results could be listed and then
+	// nothing could be invoked, because execute is keyed by resource id. The field was
+	// missing from the gateway's public DTO, which this struct mirrors.
+	ResourceID  int     `json:"resource_id"`
 	Name        string  `json:"name"`
 	Path        string  `json:"path"`
 	Method      string  `json:"method"`
@@ -248,6 +254,25 @@ func (c *Client) FederationExecute(ctx context.Context, req map[string]any) (map
 		return nil, fmt.Errorf("federation execute: %w", err)
 	}
 	return resp, nil
+}
+
+// CallAPI invokes a catalogue resource by its ID, which is the shape most callers
+// want after SearchFederation.
+//
+// FederationExecute takes an untyped map, so the caller had to know the request key
+// is "resource_id" and not "id" or "resource". This wraps it, so the search → call
+// flow is expressible without reading the gateway's source.
+//
+// POST /v1/marketplace/api/{id} is the documented equivalent; this uses the execute
+// endpoint so one code path covers both older and newer gateways.
+func (c *Client) CallAPI(ctx context.Context, resourceID int, payload map[string]any) (map[string]any, error) {
+	if resourceID <= 0 {
+		return nil, fmt.Errorf("call api: resource id must be positive, got %d", resourceID)
+	}
+	return c.FederationExecute(ctx, map[string]any{
+		"resource_id": resourceID,
+		"payload":     payload,
+	})
 }
 
 // FederationHealth reports the federation's health status.
