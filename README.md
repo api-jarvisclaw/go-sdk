@@ -64,23 +64,45 @@ func main() {
 
 ## Authentication
 
-Two modes — pick one:
+Two modes — pick one. Every constructor takes the same options, so the choice is
+made once and applies to every client.
 
 ```go
-// x402 wallet (USDC on Base, no gas needed) — recommended
-client, _ := jc.NewClient(jc.WithPrivateKey("0x<hex-private-key>"))
-
 // API key (bearer token)
 client, _ := jc.NewClient(jc.WithAPIKey("sk-your-key"))
+
+// x402 wallet — USDC, no gas needed. Both chains are accepted:
+client, _ := jc.NewClient(jc.WithPrivateKey("0x<hex-key>"))       // EVM / Base
+client, _ := jc.NewClient(jc.WithPrivateKey("<base58-key>"))      // Solana
 
 // Auto-detect from environment: JARVISCLAW_WALLET_KEY or JARVISCLAW_API_KEY
 client, _ := jc.NewClient()
 ```
 
+`WithPrivateKey` detects the rail from the key's own encoding — 64 hex characters
+is EVM, base58 decoding to 32 or 64 bytes is Solana — so you paste what your
+wallet exported without also declaring which chain it came from.
+
+On Solana the signer needs a recent blockhash. It uses the public mainnet RPC by
+default, which is rate-limited; point it somewhere better for real traffic:
+
+```go
+client, _ := jc.NewClient(
+    jc.WithSolanaRPC("https://your-rpc.example"),   // before WithPrivateKey
+    jc.WithPrivateKey(os.Getenv("JARVISCLAW_WALLET_KEY")),
+)
+```
+
+A Solana wallet needs the gateway to advertise a Solana payment option in its 402
+challenge. It omits one whenever its facilitator fee payer is not yet known, and
+in that case the SDK fails with `no Solana payment option` listing what *was*
+offered — rather than trying to sign a Base option with an ed25519 key.
+
 Environment variables:
-- `JARVISCLAW_WALLET_KEY` — EVM private key (hex, with or without 0x prefix)
+- `JARVISCLAW_WALLET_KEY` — wallet private key (EVM hex or Solana base58)
 - `JARVISCLAW_API_KEY` — API key
-- `JARVISCLAW_BASE_URL` — Custom base URL
+- `JARVISCLAW_BASE_URL` — custom base URL
+- `JARVISCLAW_SOLANA_RPC` — Solana RPC endpoint for blockhash lookups
 
 ---
 
@@ -563,13 +585,41 @@ if err != nil {
 
 ```go
 jc.NewClient(
-    jc.WithPrivateKey("0x..."),          // x402 wallet auth
+    jc.WithPrivateKey("0x..."),          // x402 wallet auth (EVM hex or Solana base58)
     jc.WithAPIKey("sk-..."),             // API key auth
     jc.WithBaseURL("https://..."),       // Custom endpoint
     jc.WithTimeout(120 * time.Second),   // HTTP timeout
-    jc.WithNetwork("eip155:8453"),       // Payment network (Base)
+    jc.WithNetwork("eip155:8453"),       // Payment network (Base; set by key detection)
+    jc.WithSolanaRPC("https://..."),     // Blockhash source for Solana signing
 )
 ```
+
+## What's new in v2.2.0
+
+Additive only — no import changes needed from v2.1.0.
+
+**Added: Solana wallets.** `WithPrivateKey` accepted 64-character hex only, so a
+base58 Solana key was rejected as invalid hex at construction and a Solana wallet
+holder could not use this SDK at all — while the Python SDK accepted the same key.
+The rail is now detected from the key's encoding, and payments are signed as a
+partially-signed V0 transaction matching the gateway's own signer. Adds
+`WithSolanaRPC` and reads `JARVISCLAW_SOLANA_RPC`.
+
+**Fixed:** x402 v1 challenges were unpayable. `paymentInfo` read only `amount`,
+but v1 names the field `maxAmountRequired`, so signing failed with `invalid
+payment amount: ""` — and the upstreams we resell still send v1.
+
+**Fixed:** the paid retry sent only `PAYMENT-SIGNATURE`. Some servers read
+`X-PAYMENT` instead, and the gateway accepts both; the retry now sets both, so a
+correctly signed payment is not ignored by a server using the other convention.
+
+**Added:** `ListAPIs` (the marketplace catalogue) and `InvokeAPI` (the unwrapped
+invoke path). Together with `CallAPI` from v2.1.1, discovery to invocation is
+expressible without dropping to raw HTTP.
+
+**Dependencies:** adds `gagliardetto/solana-go` and `mr-tron/base58` for Solana
+signing. Blockhash lookups are hand-rolled JSON-RPC rather than `solana-go/rpc`,
+which would have pulled in a MongoDB driver for one method call.
 
 ## What's new in v2.1.0
 
@@ -679,6 +729,9 @@ which is the ranked-resolution type.
 
 - Go >= 1.24 (set by `go.mod`; the `go-ethereum` dependency used for x402
   EIP-712 signing requires it)
+- x402 signing pulls in `go-ethereum` (EVM) and `gagliardetto/solana-go`
+  (Solana). Both are needed because the rail is chosen at runtime from your key,
+  not at build time.
 
 ## Links
 

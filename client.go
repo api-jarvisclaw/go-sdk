@@ -33,7 +33,7 @@ import (
 
 const (
 	DefaultBaseURL = "https://api.jarvisclaw.ai"
-	Version        = "2.1.0"
+	Version        = "2.2.0"
 
 	maxRetries = 3
 )
@@ -71,12 +71,19 @@ func isRetryableNetworkError(err error) bool {
 }
 
 // Client is the JarvisClaw API client.
+//
+// Exactly one credential is needed, and either works everywhere: an API key (managed
+// billing) or a wallet private key (x402 on-chain settlement). A wallet key may be EVM
+// (hex, Base) or Solana (base58) — WithPrivateKey detects which.
 type Client struct {
 	apiKey     string
 	privateKey *ecdsa.PrivateKey
 	address    common.Address
+	// solana is set instead of privateKey/address when the wallet key is a Solana key.
+	solana     *solanaSigner
 	baseURL    string
 	network    string
+	solanaRPC  string
 	httpClient *http.Client
 	initErr    error
 }
@@ -89,17 +96,62 @@ func WithAPIKey(key string) Option {
 	return func(c *Client) { c.apiKey = key }
 }
 
-// WithPrivateKey sets the Ethereum private key for x402 payment authentication.
-func WithPrivateKey(hexKey string) Option {
+// WithPrivateKey sets the wallet private key for x402 payment authentication.
+//
+// Both rails are accepted and detected from the key's own encoding:
+//
+//   - EVM (Base): 64 hex characters, with or without a 0x prefix.
+//   - Solana: base58 decoding to a 32-byte seed or a 64-byte keypair.
+//
+// A base58 Solana key used to be rejected here as invalid hex, so a Solana wallet
+// holder could not use this SDK at all while the Python SDK accepted the same key.
+//
+// Detection over configuration: a caller pasting a key from their wallet should not
+// also have to declare which chain it is from, and getting that declaration wrong
+// would sign against the wrong rail.
+func WithPrivateKey(walletKey string) Option {
 	return func(c *Client) {
-		clean := strings.TrimPrefix(hexKey, "0x")
-		key, err := crypto.HexToECDSA(clean)
-		if err != nil {
-			c.initErr = err
+		key := strings.TrimSpace(walletKey)
+		if key == "" {
+			c.initErr = fmt.Errorf("private key is empty")
 			return
 		}
-		c.privateKey = key
-		c.address = crypto.PubkeyToAddress(key.PublicKey)
+		if isSolanaKey(key) {
+			signer, err := newSolanaSigner(key, c.solanaRPC)
+			if err != nil {
+				c.initErr = err
+				return
+			}
+			c.solana = signer
+			// So a 402 challenge is matched against the rail we can actually sign on.
+			// Left at the EVM default, parsePaymentRequired would prefer the Base
+			// option and signing would then fail on a key that cannot produce it.
+			if c.network == DefaultNetwork {
+				c.network = SolanaNetwork
+			}
+			return
+		}
+		ecdsaKey, err := crypto.HexToECDSA(strings.TrimPrefix(key, "0x"))
+		if err != nil {
+			c.initErr = fmt.Errorf("invalid wallet key: not a 64-character hex EVM key nor a base58 Solana key: %w", err)
+			return
+		}
+		c.privateKey = ecdsaKey
+		c.address = crypto.PubkeyToAddress(ecdsaKey.PublicKey)
+	}
+}
+
+// WithSolanaRPC overrides the Solana RPC endpoint used to fetch a blockhash when
+// signing an x402 payment on Solana. Defaults to the public mainnet endpoint, which is
+// rate-limited — set your own for anything beyond occasional calls.
+//
+// Must be applied before WithPrivateKey, since the signer captures the endpoint.
+func WithSolanaRPC(url string) Option {
+	return func(c *Client) {
+		c.solanaRPC = url
+		if c.solana != nil {
+			c.solana.rpcURL = url
+		}
 	}
 }
 
@@ -131,7 +183,15 @@ func NewClient(opts ...Option) (*Client, error) {
 	if v := os.Getenv("JARVISCLAW_API_KEY"); v != "" {
 		c.apiKey = v
 	}
+	// Read before the wallet key: the Solana signer captures the RPC endpoint when it is
+	// built, so setting it afterwards would leave an env-configured wallet pointed at the
+	// rate-limited public endpoint.
+	if v := os.Getenv("JARVISCLAW_SOLANA_RPC"); v != "" {
+		c.solanaRPC = v
+	}
 	if v := os.Getenv("JARVISCLAW_WALLET_KEY"); v != "" {
+		// Through WithPrivateKey, so an env-supplied key gets the same EVM/Solana
+		// detection as an explicitly passed one.
 		WithPrivateKey(v)(c)
 	}
 	if v := os.Getenv("JARVISCLAW_BASE_URL"); v != "" {
@@ -146,19 +206,26 @@ func NewClient(opts ...Option) (*Client, error) {
 		return nil, fmt.Errorf("invalid private key: %w", c.initErr)
 	}
 
-	if c.apiKey == "" && c.privateKey == nil {
+	if c.apiKey == "" && c.privateKey == nil && c.solana == nil {
 		return nil, fmt.Errorf("jarvisclaw: authentication required — provide WithAPIKey or WithPrivateKey (or set JARVISCLAW_API_KEY / JARVISCLAW_WALLET_KEY)")
 	}
 	return c, nil
 }
 
-// Address returns the Ethereum address derived from the private key, or empty string.
+// Address returns the wallet address derived from the private key, or an empty string in
+// API-key mode. Hex for an EVM key, base58 for a Solana key.
 func (c *Client) Address() string {
+	if c.solana != nil {
+		return c.solana.Address()
+	}
 	if c.privateKey == nil {
 		return ""
 	}
 	return c.address.Hex()
 }
+
+// canPay reports whether this client holds a wallet key on either rail.
+func (c *Client) canPay() bool { return c.privateKey != nil || c.solana != nil }
 
 // ── Internal request helpers ─────────────────────────────────────────────────
 
@@ -338,20 +405,47 @@ func (c *Client) executeRaw(req *http.Request, bodyBytes []byte) (*http.Response
 	return nil, &APIError{StatusCode: lastStatusCode, Message: fmt.Sprintf("request failed after %d retries (last status %d)", maxRetries, lastStatusCode)}
 }
 
-// handle402JSON handles a 402 Payment Required by signing an x402 payment and retrying.
-func (c *Client) handle402JSON(orig *http.Request, bodyBytes []byte, body402 []byte) (map[string]any, error) {
-	if c.privateKey == nil {
-		return nil, &InsufficientBalanceError{APIError{StatusCode: 402, Message: "payment required — provide WithPrivateKey for x402 payments"}}
+// signFor402 signs a 402 challenge on whichever rail this client holds a key for.
+//
+// One function for both 402 handlers: they had identical parse-then-sign blocks, so
+// adding Solana to one and not the other would have left streaming requests unable to
+// pay on a rail that plain requests could.
+func (c *Client) signFor402(orig *http.Request, body402 []byte) (string, error) {
+	if c.solana != nil {
+		// A Solana client must find a Solana option. parsePaymentRequired would happily
+		// return the Base entry, and signing it with an ed25519 key is impossible — the
+		// error would name the signature rather than the missing option.
+		payment, err := selectSolanaPayment(body402)
+		if err != nil {
+			return "", &PaymentError{JarvisClawError{Message: err.Error()}}
+		}
+		sig, err := c.solana.signSolanaPayment(orig.Context(), payment, orig.URL.String())
+		if err != nil {
+			return "", &PaymentError{JarvisClawError{Message: fmt.Sprintf("sign Solana payment: %s", err)}}
+		}
+		return sig, nil
 	}
 
 	payment, err := parsePaymentRequired(body402, c.network)
 	if err != nil {
-		return nil, &PaymentError{JarvisClawError{Message: fmt.Sprintf("parse 402: %s", err)}}
+		return "", &PaymentError{JarvisClawError{Message: fmt.Sprintf("parse 402: %s", err)}}
 	}
-
 	sig, err := c.signPayment(payment, orig.URL.String())
 	if err != nil {
-		return nil, &PaymentError{JarvisClawError{Message: fmt.Sprintf("sign payment: %s", err)}}
+		return "", &PaymentError{JarvisClawError{Message: fmt.Sprintf("sign payment: %s", err)}}
+	}
+	return sig, nil
+}
+
+// handle402JSON handles a 402 Payment Required by signing an x402 payment and retrying.
+func (c *Client) handle402JSON(orig *http.Request, bodyBytes []byte, body402 []byte) (map[string]any, error) {
+	if !c.canPay() {
+		return nil, &InsufficientBalanceError{APIError{StatusCode: 402, Message: "payment required — provide WithPrivateKey for x402 payments"}}
+	}
+
+	sig, err := c.signFor402(orig, body402)
+	if err != nil {
+		return nil, err
 	}
 
 	retryReq, err := c.cloneRequest(orig, bodyBytes)
@@ -359,6 +453,7 @@ func (c *Client) handle402JSON(orig *http.Request, bodyBytes []byte, body402 []b
 		return nil, err
 	}
 	retryReq.Header.Set("PAYMENT-SIGNATURE", sig)
+	retryReq.Header.Set("X-PAYMENT", sig)
 
 	retryResp, err := c.httpClient.Do(retryReq)
 	if err != nil {
@@ -370,18 +465,13 @@ func (c *Client) handle402JSON(orig *http.Request, bodyBytes []byte, body402 []b
 
 // handle402Raw handles x402 for raw/streaming requests.
 func (c *Client) handle402Raw(orig *http.Request, bodyBytes []byte, body402 []byte) (*http.Response, error) {
-	if c.privateKey == nil {
+	if !c.canPay() {
 		return nil, &InsufficientBalanceError{APIError{StatusCode: 402, Message: "payment required — provide WithPrivateKey for x402 payments"}}
 	}
 
-	payment, err := parsePaymentRequired(body402, c.network)
+	sig, err := c.signFor402(orig, body402)
 	if err != nil {
-		return nil, &PaymentError{JarvisClawError{Message: fmt.Sprintf("parse 402: %s", err)}}
-	}
-
-	sig, err := c.signPayment(payment, orig.URL.String())
-	if err != nil {
-		return nil, &PaymentError{JarvisClawError{Message: fmt.Sprintf("sign payment: %s", err)}}
+		return nil, err
 	}
 
 	retryReq, err := c.cloneRequest(orig, bodyBytes)
@@ -389,6 +479,9 @@ func (c *Client) handle402Raw(orig *http.Request, bodyBytes []byte, body402 []by
 		return nil, err
 	}
 	retryReq.Header.Set("PAYMENT-SIGNATURE", sig)
+	// Both header names the ecosystem uses. The gateway reads PAYMENT-SIGNATURE and
+	// accepts X-PAYMENT as an alias; sending both means neither convention loses.
+	retryReq.Header.Set("X-PAYMENT", sig)
 
 	retryResp, err := c.httpClient.Do(retryReq)
 	if err != nil {
