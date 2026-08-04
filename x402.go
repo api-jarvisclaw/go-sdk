@@ -21,12 +21,26 @@ const (
 )
 
 type paymentInfo struct {
-	PayTo             string         `json:"payTo"`
-	Amount            string         `json:"amount"`
+	PayTo  string `json:"payTo"`
+	Amount string `json:"amount"`
+	// MaxAmountRequired is what x402 v1 challenges call the amount. Only "amount" was
+	// read, so a v1 challenge parsed to an empty string and signing failed with
+	// `invalid payment amount: ""` — the upstreams we resell still send v1, and the
+	// gateway's own signer reads both.
+	MaxAmountRequired string         `json:"maxAmountRequired"`
 	Network           string         `json:"network"`
 	Asset             string         `json:"asset"`
 	MaxTimeoutSeconds int            `json:"maxTimeoutSeconds"`
 	Extra             map[string]any `json:"extra"`
+}
+
+// amountValue returns the payment amount, accepting both field names the protocol has
+// used across versions.
+func (p *paymentInfo) amountValue() string {
+	if p.Amount != "" {
+		return p.Amount
+	}
+	return p.MaxAmountRequired
 }
 
 func parsePaymentRequired(body []byte, preferredNetwork string) (*paymentInfo, error) {
@@ -80,9 +94,10 @@ func (c *Client) signPayment(payment *paymentInfo, resourceURL string) (string, 
 	validAfter := now - 60
 	validBefore := now + int64(payment.MaxTimeoutSeconds)
 
-	amount, ok := new(big.Int).SetString(payment.Amount, 10)
+	rawAmount := payment.amountValue()
+	amount, ok := new(big.Int).SetString(rawAmount, 10)
 	if !ok || amount == nil {
-		return "", fmt.Errorf("invalid payment amount: %q", payment.Amount)
+		return "", fmt.Errorf("invalid payment amount: %q", rawAmount)
 	}
 
 	// Extract chainId from network string "eip155:<chainId>"
