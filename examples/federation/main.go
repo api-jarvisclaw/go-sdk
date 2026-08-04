@@ -62,8 +62,35 @@ func main() {
 	}
 	fmt.Printf("\nSearch hits for \"video generation\": %d\n", len(hits))
 	for _, h := range hits {
-		fmt.Printf("  %-40s %v %s\n", truncate(h.Name, 40), h.SellPrice, h.Currency)
+		fmt.Printf("  #%-6d %-40s %v %s\n", h.ResourceID, truncate(h.Name, 40), h.SellPrice, h.Currency)
 	}
+
+	// --- The marketplace view of the same capacity ------------------------
+	// Priced in marketplace terms, unpriced (therefore uncallable) rows excluded,
+	// and it hands back the category counts so you can build a filter without
+	// paging the whole catalogue.
+	page, err := client.ListAPIs(ctx, jarvisclaw.CatalogueParams{PageSize: 5, Keyword: "qr"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("\nCatalogue matches for \"qr\": %d total\n", page.Total)
+	for _, it := range page.Items {
+		fmt.Printf("  #%-6d %-30s $%v/%s\n", it.ResourceID, truncate(it.Name, 30), it.DisplayPrice, it.PriceUnit)
+	}
+
+	// --- Discovery to invocation ------------------------------------------
+	// ResourceID from any listing is the handle both call paths take. Both settle
+	// on-chain, so they are commented out rather than run: they spend real USDC.
+	//
+	// CallAPI keeps execute's envelope, which is where tx_hash and cost_usd
+	// live, and reports an upstream error as success=false rather than a Go error:
+	//
+	//   out, err := client.CallAPI(ctx, hits[0].ResourceID, map[string]any{"prompt": "a cat"})
+	//   if out["success"] != true { /* charged, upstream refused */ }
+	//
+	// InvokeAPI hands back the upstream body with no envelope:
+	//
+	//   raw, err := client.InvokeAPI(ctx, hits[0].ResourceID, map[string]any{"prompt": "a cat"})
 
 	// --- Admin-only operations (need an admin session — commented out) -----
 	//

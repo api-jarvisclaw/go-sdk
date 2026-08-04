@@ -254,11 +254,34 @@ fmt.Println(string(body))
 
 ### Federation
 
+Around 2,700 callable endpoints from peer gateways, listed and invoked through the
+same client. Discovery is public; invocation settles on-chain.
+
 ```go
-// Public registry — no admin rights needed.
+// Public registry — no auth needed for any of these.
 resources, _ := client.SearchFederation(ctx, jc.FederationSearchParams{Query: "price", Limit: 10})
 servers, total, _ := client.ListFederationServers(ctx, 1, 20)
+all, total, _ := client.ListFederationResources(ctx, 1, 50)
 
+// The marketplace view of the same capacity: marketplace pricing, unpriced
+// (therefore uncallable) rows excluded, plus category counts for a filter UI.
+page, _ := client.ListAPIs(ctx, jc.CatalogueParams{PageSize: 50, Keyword: "qr"})
+
+// Every listing hands back ResourceID, which is the handle both call paths take.
+id := resources[0].ResourceID
+
+// Returns the upstream body directly.
+raw, _ := client.InvokeAPI(ctx, id, map[string]any{"url": "https://example.com/a.png"})
+
+// Keeps execute's envelope, which is where tx_hash and cost_usd live.
+out, _ := client.CallAPI(ctx, id, map[string]any{"url": "https://example.com/a.png"})
+```
+
+`CallAPI` reports an upstream failure as `success: false` in the body, not as
+a Go error — the charge has already settled by then, so check the field rather
+than assuming a nil error means the upstream answered.
+
+```go
 // Peer management requires a dashboard session or access token, not an API key.
 peers, _ := client.FederationPeers(ctx)
 client.AddFederationPeer(ctx, "peer.example.com")

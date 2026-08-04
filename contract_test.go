@@ -676,10 +676,16 @@ func TestContractCallUserAPIPath(t *testing.T) {
 }
 
 // controller/federation.go SearchFederationResources — public projection.
+//
+// The stub body carries resource_id because the live endpoint does. It did not,
+// and neither did FederationResource, so this test passed while the SDK dropped
+// the one field that makes a search result callable — the implementation and the
+// fixture were wrong together, which is exactly what a contract test cannot catch
+// when its fixture is written from the implementation instead of the server.
 func TestContractSearchFederation(t *testing.T) {
 	const body = `{
 	  "success": true,
-	  "data": [{"name":"price","path":"/price","method":"GET","description":"spot price",
+	  "data": [{"resource_id":476,"name":"price","path":"/price","method":"GET","description":"spot price",
 	    "category":"crypto","tags":"defi","price_input":0,"price_output":0,
 	    "sell_price":0.002,"price_unit":"call","currency":"USDC","network":"base",
 	    "popular":true,"call_count":120,"server_name":"peer-a","updated_at":1751000000}],
@@ -696,6 +702,137 @@ func TestContractSearchFederation(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].SellPrice != 0.002 || got[0].ServerName != "peer-a" {
 		t.Fatalf("resources = %+v", got)
+	}
+	if got[0].ResourceID != 476 {
+		t.Errorf("ResourceID = %d, want 476 — without it a hit cannot be passed to CallAPI", got[0].ResourceID)
+	}
+}
+
+// ListFederationResources must also surface the handle, for the same reason.
+func TestContractListFederationResourcesCarriesResourceID(t *testing.T) {
+	const body = `{
+	  "success": true,
+	  "data": [{"resource_id":64,"name":"Summarize Text","path":"/summarize-text","method":"POST",
+	    "sell_price":0.002875,"price_unit":"call","currency":"USDC","network":"base"}],
+	  "total": 2658, "page": 1, "page_size": 1
+	}`
+	c, _ := newStub(t, 200, body)
+
+	got, total, err := c.ListFederationResources(context.Background(), 1, 1)
+	if err != nil {
+		t.Fatalf("ListFederationResources: %v", err)
+	}
+	if total != 2658 {
+		t.Errorf("total = %d, want 2658", total)
+	}
+	if len(got) != 1 || got[0].ResourceID != 64 {
+		t.Fatalf("resources = %+v, want ResourceID 64", got)
+	}
+}
+
+// controller/aip/federation_marketplace.go FederationMarketplaceCatalogue —
+// {success, data:{items,total,page,page_size,categories}}, one nesting level
+// deeper than the other federation listings.
+func TestContractListAPIs(t *testing.T) {
+	const body = `{
+	  "success": true,
+	  "data": {
+	    "items": [{"service_id":"federation/64","name":"Summarize Text","category":"ai tools",
+	      "price_unit":"call","display_price":0.002875,"resource_id":64,"server_name":"",
+	      "method":"POST","description":"Summarize long text.","tags":"AI,Text","source":"federation"}],
+	    "total": 2720, "page": 1, "page_size": 1,
+	    "categories": [{"category":"ai tools","count":312}]
+	  }
+	}`
+	c, seen := newStub(t, 200, body)
+
+	page, err := c.ListAPIs(context.Background(), jarvisclaw.CatalogueParams{
+		Page: 1, PageSize: 1, Category: "ai tools", Keyword: "summar",
+	})
+	if err != nil {
+		t.Fatalf("ListAPIs: %v", err)
+	}
+	if seen.Path != "/api/marketplace/apis" {
+		t.Errorf("path = %q", seen.Path)
+	}
+	// The keyword parameter is named q, not keyword or search.
+	if !strings.Contains(seen.Query, "q=summar") {
+		t.Errorf("query = %q, want q=summar", seen.Query)
+	}
+	if page.Total != 2720 || len(page.Items) != 1 {
+		t.Fatalf("page = %+v", page)
+	}
+	if page.Items[0].ResourceID != 64 || page.Items[0].ServiceID != "federation/64" {
+		t.Errorf("item = %+v", page.Items[0])
+	}
+	if page.Items[0].DisplayPrice != 0.002875 {
+		t.Errorf("DisplayPrice = %v, want 0.002875", page.Items[0].DisplayPrice)
+	}
+	if len(page.Categories) != 1 || page.Categories[0].Count != 312 {
+		t.Errorf("categories = %+v", page.Categories)
+	}
+}
+
+// CallAPI must send resource_id (not id) and omit payload entirely when nil,
+// since the execute path only forwards a body when one is present.
+func TestContractCallAPIBody(t *testing.T) {
+	t.Run("with payload", func(t *testing.T) {
+		c, seen := newStub(t, 200, `{"success":true,"status_code":200}`)
+		if _, err := c.CallAPI(context.Background(), 476, map[string]any{"url": "x"}); err != nil {
+			t.Fatalf("CallAPI: %v", err)
+		}
+		if seen.Path != "/v1/federation/execute" {
+			t.Errorf("path = %q", seen.Path)
+		}
+		if !strings.Contains(seen.Body, `"resource_id":476`) {
+			t.Errorf("body = %q, want resource_id:476", seen.Body)
+		}
+		if !strings.Contains(seen.Body, `"url":"x"`) {
+			t.Errorf("body = %q, want the payload forwarded", seen.Body)
+		}
+	})
+
+	t.Run("nil payload sends no payload key", func(t *testing.T) {
+		c, seen := newStub(t, 200, `{"success":true}`)
+		if _, err := c.CallAPI(context.Background(), 476, nil); err != nil {
+			t.Fatalf("CallAPI: %v", err)
+		}
+		if strings.Contains(seen.Body, "payload") {
+			t.Errorf("body = %q, want no payload key for a nil payload", seen.Body)
+		}
+	})
+
+	t.Run("rejects non-positive id", func(t *testing.T) {
+		c, _ := newStub(t, 200, `{}`)
+		for _, id := range []int{0, -1} {
+			if _, err := c.CallAPI(context.Background(), id, nil); err == nil {
+				t.Errorf("CallAPI(%d): expected an error", id)
+			}
+		}
+	})
+}
+
+// InvokeAPI targets the marketplace URL shape and returns the upstream body
+// unwrapped, so nothing here should look for an envelope.
+func TestContractInvokeAPI(t *testing.T) {
+	c, seen := newStub(t, 200, `{"decoded":["https://example.com"]}`)
+
+	raw, err := c.InvokeAPI(context.Background(), 476, map[string]any{"url": "x"})
+	if err != nil {
+		t.Fatalf("InvokeAPI: %v", err)
+	}
+	if seen.Path != "/v1/marketplace/api/476" {
+		t.Errorf("path = %q, want /v1/marketplace/api/476", seen.Path)
+	}
+	if seen.Method != "POST" {
+		t.Errorf("method = %q, want POST", seen.Method)
+	}
+	if !strings.Contains(string(raw), "example.com") {
+		t.Errorf("raw = %q, want the upstream body verbatim", raw)
+	}
+
+	if _, err := c.InvokeAPI(context.Background(), 0, nil); err == nil {
+		t.Error("InvokeAPI(0): expected an error")
 	}
 }
 
