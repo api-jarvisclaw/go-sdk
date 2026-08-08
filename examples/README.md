@@ -26,7 +26,7 @@ go run ./examples/chat
 | [intent](intent/) | Intent types, discovery, ranking, natural language | no |
 | [embeddings](embeddings/) | Embeddings and batch embedding | no |
 | [analytics](analytics/) | Spend aggregation, quality metrics, insights | no |
-| [federation](federation/) | Peer discovery and federated resource search | no |
+| [network](network/) | Peer discovery and network API search | no |
 | [marketplace](marketplace/) | DeFi data, JSON-RPC, arbitrary services | **yes** |
 
 ## Two billing paths

@@ -1,10 +1,10 @@
-// Federation — discover peer gateways and search their advertised resources.
+// Network — discover peer gateways and search the APIs they advertise.
 //
 // The public registry endpoints used here need no auth. Peer management
-// (AddFederationPeer, RemoveFederationPeer, FederationCrawl) is admin-only and
+// (AddNetworkPeer, RemoveNetworkPeer, NetworkCrawl) is admin-only and
 // is left commented out.
 //
-// Run: go run ./examples/federation
+// Run: go run ./examples/network
 package main
 
 import (
@@ -29,11 +29,11 @@ func main() {
 	// --- Who is in the network? -------------------------------------------
 	// Server and resource listings are paginated (page, pageSize) and also return
 	// the total count, so you can tell how much more there is to fetch.
-	servers, totalServers, err := client.ListFederationServers(ctx, 1, 5)
+	servers, totalServers, err := client.ListNetworkServers(ctx, 1, 5)
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Federation servers (%d total, showing %d):\n", totalServers, len(servers))
+	fmt.Printf("Network servers (%d total, showing %d):\n", totalServers, len(servers))
 	for _, s := range servers {
 		health := "down"
 		if s.Healthy {
@@ -43,7 +43,7 @@ func main() {
 	}
 
 	// --- What can they do? ------------------------------------------------
-	resources, totalResources, err := client.ListFederationResources(ctx, 1, 5)
+	resources, totalResources, err := client.ListNetworkAPIs(ctx, 1, 5)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func main() {
 	}
 
 	// --- Search across every peer at once ---------------------------------
-	hits, err := client.SearchFederation(ctx, jarvisclaw.FederationSearchParams{
+	hits, err := client.SearchNetwork(ctx, jarvisclaw.NetworkSearchParams{
 		Query: "video generation",
 		Limit: 5,
 	})
@@ -94,10 +94,10 @@ func main() {
 
 	// --- Admin-only operations (need an admin session — commented out) -----
 	//
-	// peers, err := client.FederationPeers(ctx)
-	// added, err := client.AddFederationPeer(ctx, "https://peer.example.com")
-	// err = client.RemoveFederationPeer(ctx, "peer.example.com")
-	// result, err := client.FederationCrawl(ctx)
+	// peers, err := client.NetworkPeers(ctx)
+	// added, err := client.AddNetworkPeer(ctx, "https://peer.example.com")
+	// err = client.RemoveNetworkPeer(ctx, "peer.example.com")
+	// result, err := client.NetworkCrawl(ctx)
 }
 
 func truncate(s string, n int) string {

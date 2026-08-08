@@ -178,7 +178,7 @@ func TestContractUpdateWalletLimitPreservesOtherFields(t *testing.T) {
 }
 
 // controller/aip/federation.go FederationStatus — {success,data} with camelCase.
-func TestContractFederationPeers(t *testing.T) {
+func TestContractNetworkPeers(t *testing.T) {
 	const body = `{
 	  "success": true,
 	  "data": [
@@ -189,9 +189,9 @@ func TestContractFederationPeers(t *testing.T) {
 	}`
 	c, _ := newStub(t, 200, body)
 
-	peers, err := c.FederationPeers(context.Background())
+	peers, err := c.NetworkPeers(context.Background())
 	if err != nil {
-		t.Fatalf("FederationPeers: %v", err)
+		t.Fatalf("NetworkPeers: %v", err)
 	}
 	if len(peers) != 1 {
 		t.Fatalf("peers = %+v", peers)
@@ -209,11 +209,11 @@ func TestContractFederationPeers(t *testing.T) {
 }
 
 // controller/aip/federation.go FederationRemovePeer — domain in the body, no path id.
-func TestContractRemoveFederationPeerSendsDomain(t *testing.T) {
+func TestContractRemoveNetworkPeerSendsDomain(t *testing.T) {
 	c, seen := newStub(t, 200, `{"message":"peer removed","domain":"a.example"}`)
 
-	if err := c.RemoveFederationPeer(context.Background(), "a.example"); err != nil {
-		t.Fatalf("RemoveFederationPeer: %v", err)
+	if err := c.RemoveNetworkPeer(context.Background(), "a.example"); err != nil {
+		t.Fatalf("RemoveNetworkPeer: %v", err)
 	}
 	if seen.Method != http.MethodDelete {
 		t.Errorf("method = %s", seen.Method)
@@ -230,9 +230,9 @@ func TestContractRemoveFederationPeerSendsDomain(t *testing.T) {
 	}
 }
 
-func TestContractRemoveFederationPeerRejectsEmpty(t *testing.T) {
+func TestContractRemoveNetworkPeerRejectsEmpty(t *testing.T) {
 	c, _ := newStub(t, 200, `{}`)
-	if err := c.RemoveFederationPeer(context.Background(), ""); err == nil {
+	if err := c.RemoveNetworkPeer(context.Background(), ""); err == nil {
 		t.Error("expected error for empty domain")
 	}
 }
@@ -678,7 +678,7 @@ func TestContractCallUserAPIPath(t *testing.T) {
 // controller/federation.go SearchFederationResources — public projection.
 //
 // The stub body carries resource_id because the live endpoint does. It did not,
-// and neither did FederationResource, so this test passed while the SDK dropped
+// and neither did NetworkAPI, so this test passed while the SDK dropped
 // the one field that makes a search result callable — the implementation and the
 // fixture were wrong together, which is exactly what a contract test cannot catch
 // when its fixture is written from the implementation instead of the server.
@@ -693,7 +693,7 @@ func TestContractSearchFederation(t *testing.T) {
 	}`
 	c, seen := newStub(t, 200, body)
 
-	got, err := c.SearchFederation(context.Background(), jarvisclaw.FederationSearchParams{Query: "price", Limit: 5})
+	got, err := c.SearchNetwork(context.Background(), jarvisclaw.NetworkSearchParams{Query: "price", Limit: 5})
 	if err != nil {
 		t.Fatalf("SearchFederation: %v", err)
 	}
@@ -708,7 +708,7 @@ func TestContractSearchFederation(t *testing.T) {
 	}
 }
 
-// ListFederationResources must also surface the handle, for the same reason.
+// ListNetworkAPIs must also surface the handle, for the same reason.
 func TestContractListFederationResourcesCarriesResourceID(t *testing.T) {
 	const body = `{
 	  "success": true,
@@ -718,7 +718,7 @@ func TestContractListFederationResourcesCarriesResourceID(t *testing.T) {
 	}`
 	c, _ := newStub(t, 200, body)
 
-	got, total, err := c.ListFederationResources(context.Background(), 1, 1)
+	got, total, err := c.ListNetworkAPIs(context.Background(), 1, 1)
 	if err != nil {
 		t.Fatalf("ListFederationResources: %v", err)
 	}
@@ -923,7 +923,7 @@ func TestContractInputValidation(t *testing.T) {
 	if _, err := c.Moderate(ctx, "m", nil); err == nil {
 		t.Error("Moderate: expected error for nil input")
 	}
-	if err := c.AddFederationPeer(ctx, ""); err == nil {
+	if err := c.AddNetworkPeer(ctx, ""); err == nil {
 		t.Error("AddFederationPeer: expected error for empty domain")
 	}
 	if err := c.Unsubscribe(ctx, ""); err == nil {
@@ -1111,4 +1111,68 @@ func TestContractChatSendsExplicitZeroAndMaxTokens(t *testing.T) {
 	if body["seed"] != float64(7) {
 		t.Errorf("seed = %v, want 7", body["seed"])
 	}
+}
+
+
+// The federation→network rename kept the old Go symbols as deprecated aliases.
+// These assert the aliases still reach the gateway on the unchanged wire paths:
+// the rename was a Go-level rename, not an HTTP contract change.
+func TestContractDeprecatedAliasesHitUnchangedPaths(t *testing.T) {
+	t.Run("FederationPeers", func(t *testing.T) {
+		c, seen := newStub(t, 200, `{"success":true,"data":[]}`)
+		if _, err := c.FederationPeers(context.Background()); err != nil {
+			t.Fatalf("FederationPeers: %v", err)
+		}
+		if seen.Path != "/v1/aip/federation/peers" {
+			t.Errorf("path = %q, want unchanged federation path", seen.Path)
+		}
+	})
+
+	t.Run("SearchFederation", func(t *testing.T) {
+		c, seen := newStub(t, 200, `{"success":true,"data":[]}`)
+		if _, err := c.SearchFederation(context.Background(), jarvisclaw.FederationSearchParams{Query: "x"}); err != nil {
+			t.Fatalf("SearchFederation: %v", err)
+		}
+		if seen.Path != "/v1/federation/search" {
+			t.Errorf("path = %q", seen.Path)
+		}
+	})
+
+	t.Run("ListFederationResources", func(t *testing.T) {
+		c, seen := newStub(t, 200, `{"success":true,"data":[],"total":0}`)
+		if _, _, err := c.ListFederationResources(context.Background(), 1, 10); err != nil {
+			t.Fatalf("ListFederationResources: %v", err)
+		}
+		// Note: the server renamed this route to /v1/network/apis, but production
+		// still only serves the federation spelling, so the SDK must not move yet.
+		if seen.Path != "/v1/federation/resources" {
+			t.Errorf("path = %q", seen.Path)
+		}
+	})
+
+	t.Run("FederationHealth", func(t *testing.T) {
+		c, seen := newStub(t, 200, `{"status":"ok"}`)
+		if _, err := c.FederationHealth(context.Background()); err != nil {
+			t.Fatalf("FederationHealth: %v", err)
+		}
+		if seen.Path != "/v1/federation/health" {
+			t.Errorf("path = %q", seen.Path)
+		}
+	})
+}
+
+// The aliases must be type-identical to the new names, not merely convertible,
+// so existing callers can pass them into new-named APIs interchangeably.
+func TestDeprecatedAliasesAreTypeIdentical(t *testing.T) {
+	var p jarvisclaw.FederationPeer
+	var np jarvisclaw.NetworkPeer = p // compiles only if aliased, not a distinct type
+	_ = np
+
+	var r jarvisclaw.FederationResource
+	var api jarvisclaw.NetworkAPI = r
+	_ = api
+
+	var s jarvisclaw.FederationServer
+	var ns jarvisclaw.NetworkServer = s
+	_ = ns
 }
