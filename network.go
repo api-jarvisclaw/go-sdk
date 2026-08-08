@@ -43,16 +43,20 @@ type CrawlResult struct {
 // or an access token plus a New-Api-User header. An API key or x402 wallet will
 // get 401 here. Use Discover for the caller-accessible view of the federation.
 func (c *Client) NetworkPeers(ctx context.Context) ([]NetworkPeer, error) {
+	// The gateway reports auth failures as HTTP 200 with success=false, and it
+	// names the reason "message" — not "error". Reading only "error" left this
+	// silently returning an empty peer list to unauthorised callers.
 	var resp struct {
 		Success bool          `json:"success"`
+		Message string        `json:"message"`
 		Error   string        `json:"error"`
 		Data    []NetworkPeer `json:"data"`
 	}
 	if err := c.doGetInto(ctx, "/v1/aip/federation/peers", nil, &resp); err != nil {
 		return nil, fmt.Errorf("federation peers: %w", err)
 	}
-	if !resp.Success && resp.Error != "" {
-		return nil, fmt.Errorf("federation peers: %s", resp.Error)
+	if !resp.Success {
+		return nil, fmt.Errorf("federation peers: %s", firstNonEmpty(resp.Message, resp.Error, "request failed"))
 	}
 	return resp.Data, nil
 }
@@ -320,16 +324,19 @@ func (c *Client) ListAPIs(ctx context.Context, params CatalogueParams) (*Catalog
 		q["q"] = params.Keyword
 	}
 
+	// Same envelope caveat as NetworkPeers: the failure reason arrives as
+	// "message", so gate on success alone and read either field.
 	var resp struct {
 		Success bool          `json:"success"`
+		Message string        `json:"message"`
 		Error   string        `json:"error"`
 		Data    CataloguePage `json:"data"`
 	}
 	if err := c.doGetInto(ctx, "/api/marketplace/apis", q, &resp); err != nil {
 		return nil, fmt.Errorf("list apis: %w", err)
 	}
-	if !resp.Success && resp.Error != "" {
-		return nil, fmt.Errorf("list apis: %s", resp.Error)
+	if !resp.Success {
+		return nil, fmt.Errorf("list apis: %s", firstNonEmpty(resp.Message, resp.Error, "request failed"))
 	}
 	return &resp.Data, nil
 }
@@ -419,4 +426,16 @@ func (c *Client) NetworkHealth(ctx context.Context) (map[string]any, error) {
 		return nil, fmt.Errorf("federation health: %w", err)
 	}
 	return resp, nil
+}
+
+// firstNonEmpty returns the first non-blank string, so a failure whose reason
+// the gateway spells "message" in one place and "error" in another still
+// surfaces a usable message instead of an empty one.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
