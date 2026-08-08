@@ -208,6 +208,35 @@ func TestContractNetworkPeers(t *testing.T) {
 	}
 }
 
+// Both of these pin the error envelope, not the happy path. The gateway reports
+// auth failures as HTTP 200 with success=false and names the reason "message";
+// these two decoders used to read only "error" and gate on `resp.Error != ""`,
+// so an unauthorised caller silently got an empty list instead of an error.
+// Caught by an end-to-end run against production, not by the suite — hence these.
+func TestContractNetworkPeersSurfacesSuccessFalse(t *testing.T) {
+	c, _ := newStub(t, 200, `{"success":false,"message":"Unauthorized, invalid access token"}`)
+
+	peers, err := c.NetworkPeers(context.Background())
+	if err == nil {
+		t.Fatalf("expected error when success=false on a 200, got peers=%+v", peers)
+	}
+	if !strings.Contains(err.Error(), "Unauthorized, invalid access token") {
+		t.Errorf("error must carry the message field, got %q", err)
+	}
+}
+
+func TestContractListAPIsSurfacesSuccessFalse(t *testing.T) {
+	c, _ := newStub(t, 200, `{"success":false,"message":"Unauthorized, invalid access token"}`)
+
+	page, err := c.ListAPIs(context.Background(), jarvisclaw.CatalogueParams{})
+	if err == nil {
+		t.Fatalf("expected error when success=false on a 200, got page=%+v", page)
+	}
+	if !strings.Contains(err.Error(), "Unauthorized, invalid access token") {
+		t.Errorf("error must carry the message field, got %q", err)
+	}
+}
+
 // controller/aip/federation.go FederationRemovePeer — domain in the body, no path id.
 func TestContractRemoveNetworkPeerSendsDomain(t *testing.T) {
 	c, seen := newStub(t, 200, `{"message":"peer removed","domain":"a.example"}`)
