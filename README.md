@@ -12,7 +12,7 @@ go get github.com/api-jarvisclaw/go-sdk/v2@latest
 
 Seven runnable programs under [examples/](examples/), each executed against the
 live gateway: `chat`, `wallet`, `intent`, `embeddings`, `analytics`,
-`federation`, `marketplace`.
+`network`, `marketplace`.
 
 ```bash
 export JARVISCLAW_API_KEY=sk-...
@@ -108,7 +108,7 @@ Environment variables:
 
 ## Unified Client (AIP)
 
-The unified `Client` handles intent resolution, execution, streaming, wallet, and federation.
+The unified `Client` handles intent resolution, execution, streaming, wallet, and the AIP network.
 
 ### Resolve (Find Best Provider)
 
@@ -274,23 +274,27 @@ body, _ := client.CallUserAPI(ctx, "POST", "weather", "forecast", map[string]any
 fmt.Println(string(body))
 ```
 
-### Federation
+### Network
 
 Around 2,700 callable endpoints from peer gateways, listed and invoked through the
 same client. Discovery is public; invocation settles on-chain.
 
+The gateway presents these as one AIP network: peers are `NetworkPeer`, and the
+endpoints they expose are `NetworkAPI`. The older `Federation*` spellings still
+work as deprecated aliases.
+
 ```go
 // Public registry — no auth needed for any of these.
-resources, _ := client.SearchFederation(ctx, jc.FederationSearchParams{Query: "price", Limit: 10})
-servers, total, _ := client.ListFederationServers(ctx, 1, 20)
-all, total, _ := client.ListFederationResources(ctx, 1, 50)
+apis, _ := client.SearchNetwork(ctx, jc.NetworkSearchParams{Query: "price", Limit: 10})
+servers, total, _ := client.ListNetworkServers(ctx, 1, 20)
+all, total, _ := client.ListNetworkAPIs(ctx, 1, 50)
 
 // The marketplace view of the same capacity: marketplace pricing, unpriced
 // (therefore uncallable) rows excluded, plus category counts for a filter UI.
 page, _ := client.ListAPIs(ctx, jc.CatalogueParams{PageSize: 50, Keyword: "qr"})
 
 // Every listing hands back ResourceID, which is the handle both call paths take.
-id := resources[0].ResourceID
+id := apis[0].ResourceID
 
 // Returns the upstream body directly.
 raw, _ := client.InvokeAPI(ctx, id, map[string]any{"url": "https://example.com/a.png"})
@@ -305,9 +309,9 @@ than assuming a nil error means the upstream answered.
 
 ```go
 // Peer management requires a dashboard session or access token, not an API key.
-peers, _ := client.FederationPeers(ctx)
-client.AddFederationPeer(ctx, "peer.example.com")
-client.RemoveFederationPeer(ctx, "peer.example.com") // by domain, not id
+peers, _ := client.NetworkPeers(ctx)
+client.AddNetworkPeer(ctx, "peer.example.com")
+client.RemoveNetworkPeer(ctx, "peer.example.com") // by domain, not id
 ```
 
 ---

@@ -7,11 +7,11 @@ import (
 	"strconv"
 )
 
-// FederationPeer is a remote AIP-compatible platform known to this gateway.
+// NetworkPeer is a remote AIP-compatible platform known to this gateway.
 //
 // Field names follow the server's camelCase JSON, which differs from the
 // snake_case used elsewhere in this SDK.
-type FederationPeer struct {
+type NetworkPeer struct {
 	ID            int    `json:"id"`
 	Name          string `json:"name"`
 	URL           string `json:"url"`
@@ -25,28 +25,28 @@ type FederationPeer struct {
 }
 
 // Healthy reports whether the peer answered its last health check.
-func (p FederationPeer) Healthy() bool { return p.Status == "online" }
+func (p NetworkPeer) Healthy() bool { return p.Status == "online" }
 
 // CrawlResult reports the outcome of a manual federation crawl.
 type CrawlResult struct {
-	Message      string           `json:"message"`
-	PeersCrawled int              `json:"peers_crawled"`
-	Healthy      int              `json:"healthy"`
-	Results      []FederationPeer `json:"results"`
+	Message      string        `json:"message"`
+	PeersCrawled int           `json:"peers_crawled"`
+	Healthy      int           `json:"healthy"`
+	Results      []NetworkPeer `json:"results"`
 }
 
-// FederationPeers returns all registered federation peers.
+// NetworkPeers returns all registered federation peers.
 //
 // GET /v1/aip/federation/peers
 //
 // Admin-only: this route is behind AdminAuth, which requires a dashboard session
 // or an access token plus a New-Api-User header. An API key or x402 wallet will
 // get 401 here. Use Discover for the caller-accessible view of the federation.
-func (c *Client) FederationPeers(ctx context.Context) ([]FederationPeer, error) {
+func (c *Client) NetworkPeers(ctx context.Context) ([]NetworkPeer, error) {
 	var resp struct {
-		Success bool             `json:"success"`
-		Error   string           `json:"error"`
-		Data    []FederationPeer `json:"data"`
+		Success bool          `json:"success"`
+		Error   string        `json:"error"`
+		Data    []NetworkPeer `json:"data"`
 	}
 	if err := c.doGetInto(ctx, "/v1/aip/federation/peers", nil, &resp); err != nil {
 		return nil, fmt.Errorf("federation peers: %w", err)
@@ -57,11 +57,11 @@ func (c *Client) FederationPeers(ctx context.Context) ([]FederationPeer, error) 
 	return resp.Data, nil
 }
 
-// AddFederationPeer registers a peer domain, to be crawled on the next cycle.
+// AddNetworkPeer registers a peer domain, to be crawled on the next cycle.
 //
-// POST /v1/aip/federation/peers — admin-only (see FederationPeers).
+// POST /v1/aip/federation/peers — admin-only (see NetworkPeers).
 // domain is a bare host or base URL, not a peer id.
-func (c *Client) AddFederationPeer(ctx context.Context, domain string) error {
+func (c *Client) AddNetworkPeer(ctx context.Context, domain string) error {
 	if domain == "" {
 		return fmt.Errorf("add federation peer: domain is required")
 	}
@@ -72,12 +72,12 @@ func (c *Client) AddFederationPeer(ctx context.Context, domain string) error {
 	return nil
 }
 
-// RemoveFederationPeer deregisters a peer.
+// RemoveNetworkPeer deregisters a peer.
 //
-// DELETE /v1/aip/federation/peers — admin-only (see FederationPeers).
+// DELETE /v1/aip/federation/peers — admin-only (see NetworkPeers).
 //
 // The peer is identified by domain in the request body, not by id in the path.
-func (c *Client) RemoveFederationPeer(ctx context.Context, domain string) error {
+func (c *Client) RemoveNetworkPeer(ctx context.Context, domain string) error {
 	if domain == "" {
 		return fmt.Errorf("remove federation peer: domain is required")
 	}
@@ -88,14 +88,14 @@ func (c *Client) RemoveFederationPeer(ctx context.Context, domain string) error 
 	return nil
 }
 
-// FederationCrawl triggers an immediate crawl of every known peer and returns
+// NetworkCrawl triggers an immediate crawl of every known peer and returns
 // the refreshed peer states.
 //
-// POST /v1/aip/federation/crawl — admin-only (see FederationPeers).
+// POST /v1/aip/federation/crawl — admin-only (see NetworkPeers).
 //
 // The crawl covers all registered peers; it takes no per-request seed or depth.
-// Register targets with AddFederationPeer first.
-func (c *Client) FederationCrawl(ctx context.Context) (*CrawlResult, error) {
+// Register targets with AddNetworkPeer first.
+func (c *Client) NetworkCrawl(ctx context.Context) (*CrawlResult, error) {
 	var resp CrawlResult
 	if err := c.doJSON(ctx, "POST", "/v1/aip/federation/crawl", struct{}{}, &resp); err != nil {
 		return nil, fmt.Errorf("federation crawl: %w", err)
@@ -105,15 +105,15 @@ func (c *Client) FederationCrawl(ctx context.Context) (*CrawlResult, error) {
 
 // ── Federation registry (no admin rights required) ───────────────────────────
 
-// FederationResource is one callable resource published by a federation peer.
+// NetworkAPI is one callable resource published by a federation peer.
 //
 // SellPrice is what this gateway charges; PriceInput/PriceOutput are the peer's
 // published per-unit rates. The peer's own cost to us is never exposed.
-type FederationResource struct {
+type NetworkAPI struct {
 	// ResourceID is the handle every invocation path takes: CallAPI, InvokeAPI
-	// and the raw FederationExecute body all key off it.
+	// and the raw NetworkExecute body all key off it.
 	//
-	// Without it SearchFederation was a dead end: results could be listed and then
+	// Without it SearchNetwork was a dead end: results could be listed and then
 	// nothing could be invoked, because execute is keyed by resource id. The gateway's
 	// own DTO comment (model.FederationResourcePublic) says the field is published
 	// precisely so the SDKs can go from a listing to a call.
@@ -136,8 +136,8 @@ type FederationResource struct {
 	UpdatedAt   int64   `json:"updated_at"`
 }
 
-// FederationServer is a peer as published by the public registry.
-type FederationServer struct {
+// NetworkServer is a peer as published by the public registry.
+type NetworkServer struct {
 	ServerUUID    string `json:"server_uuid"`
 	Name          string `json:"name"`
 	BaseURL       string `json:"base_url"`
@@ -153,17 +153,17 @@ type FederationServer struct {
 	LatencyMs     int    `json:"latency_ms"`
 }
 
-// FederationSearchParams filters a federation resource search.
-type FederationSearchParams struct {
+// NetworkSearchParams filters a federation resource search.
+type NetworkSearchParams struct {
 	Query    string // free-text match
 	Category string // exact category match
 	Limit    int    // default 20 server-side
 }
 
-// SearchFederation searches callable resources across every known peer.
+// SearchNetwork searches callable resources across every known peer.
 //
 // GET /v1/federation/search — public, no auth required.
-func (c *Client) SearchFederation(ctx context.Context, params FederationSearchParams) ([]FederationResource, error) {
+func (c *Client) SearchNetwork(ctx context.Context, params NetworkSearchParams) ([]NetworkAPI, error) {
 	q := map[string]string{}
 	if params.Query != "" {
 		q["q"] = params.Query
@@ -176,10 +176,10 @@ func (c *Client) SearchFederation(ctx context.Context, params FederationSearchPa
 	}
 
 	var resp struct {
-		Success bool                 `json:"success"`
-		Message string               `json:"message"`
-		Data    []FederationResource `json:"data"`
-		Count   int                  `json:"count"`
+		Success bool         `json:"success"`
+		Message string       `json:"message"`
+		Data    []NetworkAPI `json:"data"`
+		Count   int          `json:"count"`
 	}
 	if err := c.doGetInto(ctx, "/v1/federation/search", q, &resp); err != nil {
 		return nil, fmt.Errorf("federation search: %w", err)
@@ -190,12 +190,12 @@ func (c *Client) SearchFederation(ctx context.Context, params FederationSearchPa
 	return resp.Data, nil
 }
 
-// ListFederationServers lists the peers in the public federation registry,
+// ListNetworkServers lists the peers in the public federation registry,
 // paginated. Page is 1-based; pageSize is clamped to 1..100 server-side.
 //
-// GET /v1/federation/servers — public, no auth required. Unlike FederationPeers
+// GET /v1/federation/servers — public, no auth required. Unlike NetworkPeers
 // this needs no admin rights.
-func (c *Client) ListFederationServers(ctx context.Context, page, pageSize int) ([]FederationServer, int, error) {
+func (c *Client) ListNetworkServers(ctx context.Context, page, pageSize int) ([]NetworkServer, int, error) {
 	q := map[string]string{}
 	if page > 0 {
 		q["page"] = strconv.Itoa(page)
@@ -205,10 +205,10 @@ func (c *Client) ListFederationServers(ctx context.Context, page, pageSize int) 
 	}
 
 	var resp struct {
-		Success bool               `json:"success"`
-		Message string             `json:"message"`
-		Data    []FederationServer `json:"data"`
-		Total   int                `json:"total"`
+		Success bool            `json:"success"`
+		Message string          `json:"message"`
+		Data    []NetworkServer `json:"data"`
+		Total   int             `json:"total"`
 	}
 	if err := c.doGetInto(ctx, "/v1/federation/servers", q, &resp); err != nil {
 		return nil, 0, fmt.Errorf("list federation servers: %w", err)
@@ -219,11 +219,11 @@ func (c *Client) ListFederationServers(ctx context.Context, page, pageSize int) 
 	return resp.Data, resp.Total, nil
 }
 
-// ListFederationResources lists resources published across the federation,
+// ListNetworkAPIs lists resources published across the federation,
 // paginated. Page is 1-based; pageSize is clamped to 1..100 server-side.
 //
 // GET /v1/federation/resources — public, no auth required.
-func (c *Client) ListFederationResources(ctx context.Context, page, pageSize int) ([]FederationResource, int, error) {
+func (c *Client) ListNetworkAPIs(ctx context.Context, page, pageSize int) ([]NetworkAPI, int, error) {
 	q := map[string]string{}
 	if page > 0 {
 		q["page"] = strconv.Itoa(page)
@@ -233,10 +233,10 @@ func (c *Client) ListFederationResources(ctx context.Context, page, pageSize int
 	}
 
 	var resp struct {
-		Success bool                 `json:"success"`
-		Message string               `json:"message"`
-		Data    []FederationResource `json:"data"`
-		Total   int                  `json:"total"`
+		Success bool         `json:"success"`
+		Message string       `json:"message"`
+		Data    []NetworkAPI `json:"data"`
+		Total   int          `json:"total"`
 	}
 	if err := c.doGetInto(ctx, "/v1/federation/resources", q, &resp); err != nil {
 		return nil, 0, fmt.Errorf("list federation resources: %w", err)
@@ -251,7 +251,7 @@ func (c *Client) ListFederationResources(ctx context.Context, page, pageSize int
 
 // CatalogueAPI is one entry in the marketplace API catalogue.
 //
-// The same underlying resources ListFederationResources returns, priced in
+// The same underlying resources ListNetworkAPIs returns, priced in
 // marketplace terms and with anything unpriced excluded — an unpriced row settles
 // zero from the caller while the gateway still pays the upstream, so it is not
 // sellable and does not appear here.
@@ -302,7 +302,7 @@ type CatalogueParams struct {
 //
 // GET /api/marketplace/apis — public, no auth required.
 //
-// This is the counterpart to ListFederationResources for callers who want the
+// This is the counterpart to ListNetworkAPIs for callers who want the
 // marketplace's own pricing view. Both hand back a resource id that
 // CallAPI and InvokeAPI take.
 func (c *Client) ListAPIs(ctx context.Context, params CatalogueParams) (*CataloguePage, error) {
@@ -336,7 +336,7 @@ func (c *Client) ListAPIs(ctx context.Context, params CatalogueParams) (*Catalog
 
 // ── Invocation ────────────────────────────────────────────────────────────────
 
-// FederationExecute invokes a federated resource through this gateway, which
+// NetworkExecute invokes a federated resource through this gateway, which
 // settles payment with the peer on the caller's behalf.
 //
 // POST /v1/federation/execute — requires an API key or x402 payment.
@@ -344,7 +344,7 @@ func (c *Client) ListAPIs(ctx context.Context, params CatalogueParams) (*Catalog
 // This takes the raw request body, so it can set fields this SDK does not model.
 // For the common case use CallAPI, which builds the body, or InvokeAPI,
 // which returns the upstream body with no envelope to unwrap.
-func (c *Client) FederationExecute(ctx context.Context, req map[string]any) (map[string]any, error) {
+func (c *Client) NetworkExecute(ctx context.Context, req map[string]any) (map[string]any, error) {
 	var resp map[string]any
 	if err := c.doJSON(ctx, "POST", "/v1/federation/execute", req, &resp); err != nil {
 		return nil, fmt.Errorf("federation execute: %w", err)
@@ -353,12 +353,12 @@ func (c *Client) FederationExecute(ctx context.Context, req map[string]any) (map
 }
 
 // CallAPI invokes a catalogue resource by the id a listing handed back, which is
-// the shape most callers want after SearchFederation or ListAPIs.
+// the shape most callers want after SearchNetwork or ListAPIs.
 //
-//	hits, _ := c.SearchFederation(ctx, jarvisclaw.FederationSearchParams{Query: "qr code"})
+//	hits, _ := c.SearchNetwork(ctx, jarvisclaw.NetworkSearchParams{Query: "qr code"})
 //	out, _ := c.CallAPI(ctx, hits[0].ResourceID, map[string]any{"url": "..."})
 //
-// FederationExecute takes an untyped map, so the caller had to know the request key
+// NetworkExecute takes an untyped map, so the caller had to know the request key
 // is "resource_id" and not "id" or "resource". This wraps it, so the search → call
 // flow is expressible without reading the gateway's source.
 //
@@ -378,7 +378,7 @@ func (c *Client) CallAPI(ctx context.Context, resourceID int, payload map[string
 	if payload != nil {
 		body["payload"] = payload
 	}
-	return c.FederationExecute(ctx, body)
+	return c.NetworkExecute(ctx, body)
 }
 
 // InvokeAPI calls a catalogue resource under the marketplace's own URL shape and
@@ -411,9 +411,9 @@ func (c *Client) InvokeAPI(ctx context.Context, resourceID int, payload map[stri
 	return raw, nil
 }
 
-// FederationHealth reports the federation's health status.
+// NetworkHealth reports the federation's health status.
 // GET /v1/federation/health — public, no auth required.
-func (c *Client) FederationHealth(ctx context.Context) (map[string]any, error) {
+func (c *Client) NetworkHealth(ctx context.Context) (map[string]any, error) {
 	var resp map[string]any
 	if err := c.doGetInto(ctx, "/v1/federation/health", nil, &resp); err != nil {
 		return nil, fmt.Errorf("federation health: %w", err)
